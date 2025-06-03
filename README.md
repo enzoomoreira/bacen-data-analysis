@@ -33,13 +33,6 @@ Este pipeline visa fornecer um conjunto de dados consolidado e pronto para anál
     *   (Obs: `pathlib`, `zipfile`, `re` são parte da biblioteca padrão do Python)
 *   Acesso à internet (para download dos dados do BCB).
 *   Permissão para criar pastas (`Input/`, `Output/`) e salvar arquivos no sistema.
-*   (Opcional) Um arquivo `requirements.txt` pode ser criado com o conteúdo:
-    ```
-    pandas
-    requests
-    openpyxl
-    # jupyter (se for executar os notebooks)
-    ```
 
 ## Estrutura de Diretórios
 
@@ -75,7 +68,7 @@ b3-analise-bancos/          ← Raiz do projeto
 │
 ├─ .gitignore                ← Arquivos e pastas a serem ignorados pelo Git
 ├─ README.md                 ← Este arquivo
-└─ requirements.txt          ← (Opcional, recomendado) Lista de dependências
+└─ requirements.txt          ← Lista de dependências
 ```
 
 ## Notebook: `Code/DataDownload.ipynb`
@@ -263,7 +256,7 @@ Este notebook não inclui exemplos complexos de consultas, mas serve como um pon
 
 ## Como Executar
 
-1.  **Clone o Repositório (se aplicável) e Configure o Ambiente**:
+1.  **Clone o Repositório e Configure o Ambiente**:
     *   Certifique-se de ter Python instalado.
     *   Navegue até a raiz do projeto (`b3-analise-bancos/`).
     *   (Recomendado) Crie e ative um ambiente virtual:
@@ -390,7 +383,3 @@ Este notebook não inclui exemplos complexos de consultas, mas serve como um pon
     *   Análise comparativa entre instituições e ao longo do tempo.
 
 Este pipeline modularizado garante que, a cada nova divulgação de dados pelo BCB, a execução do `Code/DataDownload.ipynb` atualiza todo o conjunto de dados, deixando-o pronto para novas análises.
-
-## Contato / Suporte
-
-Para dúvidas sobre o processo, formatos de dados, ou interpretação dos indicadores, entre em contato com o responsável pelo projeto.
