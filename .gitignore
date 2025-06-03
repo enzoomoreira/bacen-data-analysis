@@ -1,0 +1,10 @@
+# Python
+.venv
+__pycache__
+
+# Data Folders
+Input
+Output
+
+# Temp Folders
+Temp
