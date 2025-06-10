@@ -6,35 +6,21 @@ from pathlib import Path
 from typing import List, Dict, Union, Optional
 
 # ==============================================================================
-# FUNÇÕES DE UTILIDADE GLOBAIS
+# FUNÇÕES DE UTILIDADE GLOBAL
 # ==============================================================================
 
 def standardize_cnpj_base8(cnpj_input: Union[str, pd.Series]) -> Union[str, pd.Series]:
-    """
-    Padroniza um CNPJ (14 ou 8 dígitos) ou um código numérico para uma string de 8 dígitos (CNPJ base).
-    Aceita strings, números ou uma Series do pandas.
-    """
+    """Padroniza um CNPJ ou código para uma string de 8 dígitos."""
     def _process_single_cnpj(cnpj_element_val):
-        if pd.isna(cnpj_element_val):
-            return None  # Retorna None para valores nulos
-        
-        cnpj_str_val = str(cnpj_element_val).split('.')[0] # Remove casas decimais se for float
+        if pd.isna(cnpj_element_val): return None
+        cnpj_str_val = str(cnpj_element_val).split('.')[0]
         cleaned = re.sub(r'[^0-9]', '', cnpj_str_val)
-        
-        if not cleaned or cleaned.lower() == 'nan':
-            return None
-        
-        if len(cleaned) >= 8:
-            return cleaned[:8] # Pega os 8 primeiros dígitos
-        else:
-            return cleaned.zfill(8) # Preenche com zeros à esquerda se for menor
+        if not cleaned: return None
+        return cleaned.ljust(8, '0')[:8]
 
     if isinstance(cnpj_input, pd.Series):
         return cnpj_input.apply(_process_single_cnpj)
-    elif isinstance(cnpj_input, (str, int, float)):
-        return _process_single_cnpj(cnpj_input)
-    else:
-        return _process_single_cnpj(str(cnpj_input))
+    return _process_single_cnpj(cnpj_input)
 
 # ==============================================================================
 # CLASSE DE ANÁLISE BANCÁRIA
