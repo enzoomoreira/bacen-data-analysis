@@ -1,49 +1,35 @@
-Excelente ideia. Um bom `README.md` é o que transforma um projeto pessoal em uma ferramenta útil para outras pessoas (ou para o seu "eu" do futuro). Ele serve como documentação, guia de usuário e manual de manutenção, tudo em um só lugar.
-
-Preparei uma estrutura de `README.md` completa, seguindo as melhores práticas. Ela é detalhada, cheia de exemplos de código e explica tanto o "o quê" quanto o "porquê" do projeto.
-
-Você pode copiar e colar o conteúdo abaixo diretamente em um arquivo `README.md` na raiz do seu repositório.
-
----
-
 # Análise de Dados Financeiros do Banco Central
 
-## 1. Visão Geral do Projeto
+## 1. Visão Geral
 
-Este projeto consiste em um pipeline de dados completo para baixar, processar e analisar informações financeiras de instituições brasileiras, utilizando as APIs e os arquivos de dados públicos do Banco Central do Brasil (BCB).
+Este projeto é um pipeline completo de dados e uma ferramenta de análise para os relatórios financeiros de instituições brasileiras, disponibilizados pelo Banco Central do Brasil (BCB). Ele automatiza o processo de baixar, limpar, padronizar e conectar dados complexos de múltiplas fontes (COSIF e IFDATA), tornando-os acessíveis para análise através de uma interface Python simples e poderosa.
 
-O objetivo é transformar dados brutos e complexos, provenientes de diferentes fontes (COSIF, IFDATA), em uma estrutura de dados limpa, padronizada e pronta para análise. Para facilitar a extração de insights, o projeto inclui uma poderosa classe de análise em Python (`AnalisadorBancario`) que abstrai toda a complexidade de conectar e consultar esses dados.
+O objetivo principal é permitir que analistas, estudantes e pesquisadores possam extrair insights valiosos dos dados do BCB sem a necessidade de lidar com a complexidade do tratamento e da unificação dos dados brutos.
 
-O fluxo do projeto é dividido em duas etapas principais:
+### Fluxo do Projeto
 
-1.  **ETL (Extração, Transformação e Carga):** Realizado pelo notebook `DataDownload.ipynb`. Ele automatiza o download dos relatórios COSIF (Individual e Prudencial) e IFDATA (Cadastro e Valores), limpa-os, padroniza os nomes das colunas e os salva em formato Parquet, otimizado para performance.
-2.  **Análise de Dados:** Realizada no notebook `DataAnalysis2.ipynb`, que utiliza a classe `AnalisadorBancario` (definida em `Code/DataUtils.py`) para realizar consultas complexas de forma simples e intuitiva.
+1.  **ETL (Extração, Transformação e Carga):** O notebook `Code/DataDownload.ipynb` baixa os relatórios, padroniza as colunas, resolve inconsistências e salva os dados limpos em formato Parquet, otimizado para performance.
+2.  **Análise de Dados:** Notebooks de exemplo, `Analysis/DataAnalysis_example.ipynb` e `Analysis/DataAnalysis_example_2.ipynb`, demonstram como utilizar a classe `AnalisadorBancario` (do arquivo `Code/DataUtils.py`), que é o coração da ferramenta, para realizar consultas de forma intuitiva.
 
 ## 2. Estrutura de Arquivos
+
+Ao clonar o repositório, você terá a seguinte estrutura:
 
 ```
 .
 ├── Analysis/
-│   ├── DataAnalysis2.ipynb       # Notebook principal para análise de dados.
-│   └── referencia_nomes_consulta.xlsx # Arquivo gerado com nomes para consulta.
+│   ├── DataAnalysis_example.ipynb  # Notebook com exemplos de como usar a ferramenta.
+│   └── DataAnalysis_example_2.ipynb  # Notebook com exemplos de como usar a ferramenta.
 │
 ├── Code/
 │   ├── DataDownload.ipynb        # Notebook para download e processamento dos dados (ETL).
-│   └── DataUtils.py              # Módulo com a classe AnalisadorBancario e funções de utilidade.
-│
-├── Input/                        # Diretório para os dados brutos baixados (criado automaticamente).
-│
-├── Output/                       # Diretório para os dados processados (criado automaticamente).
+│   └── DataUtils.py              # Módulo com a classe AnalisadorBancario.
 │
 └── README.md                     # Este arquivo.
 ```
+**Nota:** Os diretórios `Input/` e `Output/` serão criados automaticamente quando você executar o notebook `DataDownload.ipynb`.
 
 ## 3. Como Começar
-
-### Pré-requisitos
-
--   Python 3.9+
--   Bibliotecas listadas em `requirements.txt` (sugestão: `pandas`, `requests`, `openpyxl`, `matplotlib`).
 
 ### Passo a Passo
 
@@ -55,153 +41,118 @@ O fluxo do projeto é dividido em duas etapas principais:
 
 2.  **Instale as Dependências:**
     ```bash
-    pip install pandas requests openpyxl matplotlib
+    pip install -r requirements.txt
     ```
 
-3.  **Execute o Pipeline de ETL:**
-    *   Abra e execute o notebook `Code/DataDownload.ipynb` do início ao fim.
-    *   Este processo pode demorar, pois ele irá baixar todos os arquivos necessários do BCB.
-    *   Ao final, os diretórios `Input/` e `Output/` estarão populados com os dados brutos e os arquivos Parquet processados, respectivamente.
+3.  **Execute o Pipeline de ETL (Passo Essencial):**
+    -   Abra e execute o notebook `Code/DataDownload.ipynb` do início ao fim.
+    -   **Atenção:** A primeira execução pode demorar. Em execuções futuras, ele baixará apenas os dados novos.
+    -   Ao final, o diretório `Output/` conterá os arquivos `.parquet` processados e os **dicionários de referência em Excel**, que são cruciais para a análise.
 
-4.  **Inicie a Análise:**
-    *   Abra o notebook `Analysis/DataAnalysis2.ipynb`.
-    *   A primeira célula irá inicializar o `AnalisadorBancario`, carregando todos os dados processados em memória.
-    *   A segunda célula irá gerar o arquivo `referencia_nomes_consulta.xlsx`, que é um guia essencial com os nomes exatos de bancos e contas para usar nas suas consultas.
-    *   A partir daí, você está pronto para usar os métodos do `AnalisadorBancario` para criar suas próprias análises.
+4.  **Explore e Analise:**
+    -   Abra o notebook `Analysis/DataAnalysis_example.ipynb` ou `Analysis/DataAnalysis_example_2.ipynb`. Eles servem como tutoriais práticos.
+    -   Consulte os arquivos gerados em `Output/`, especialmente `dicionario_entidades.xlsx`, para encontrar os nomes e identificadores corretos dos bancos.
+    -   Crie seu próprio notebook de análise e comece a usar a classe `AnalisadorBancario`!
 
 ## 4. Guia de Uso do `AnalisadorBancario`
 
-A principal ferramenta deste projeto é a classe `AnalisadorBancario`, localizada em `Code/DataUtils.py`. Ela simplifica drasticamente a interação com os dados.
+A classe `AnalisadorBancario` é a sua interface para os dados. Após inicializá-la, você pode usar seus métodos para fazer consultas complexas.
 
 ### Inicialização
-
-Primeiro, crie uma instância da classe, apontando para o diretório onde os arquivos Parquet foram salvos.
-
 ```python
-from DataUtils import AnalisadorBancario
+from Code.DataUtils import AnalisadorBancario
 from pathlib import Path
+import numpy as np # Importe o numpy para usar np.nan
 
-output_dir = Path('..').resolve() / 'Output'
+output_dir = Path('./Output').resolve()
 analisador = AnalisadorBancario(diretorio_output=str(output_dir))
 ```
 
-### Métodos Principais para Consulta
+### Conceitos Fundamentais
 
-A classe oferece métodos de alto nível para buscar diferentes tipos de dados. O `identificador` pode ser o nome do banco (parcial ou completo) ou um CNPJ de 8 dígitos.
+#### a. A "Mágica" da Tradução de Identidade
 
-#### a. `get_dados_cosif(...)`
+A ferramenta foi projetada para lidar com a complexa estrutura de conglomerados do sistema financeiro.
 
-Busca dados contábeis dos relatórios COSIF. É ideal para informações de balanço e DRE.
+-   **Entidade Individual:** Uma instituição específica (ex: "Itaú Veículos", com seu próprio CNPJ).
+-   **Conglomerado:** O grupo financeiro ao qual a entidade pertence (ex: Itaú Unibanco). Os dados consolidados são reportados por uma entidade **líder**.
 
+Quando você pede um dado prudencial para "Itaú Veículos", a classe automaticamente:
+1.  Encontra o CNPJ da entidade.
+2.  Descobre a qual conglomerado ela pertence.
+3.  Identifica o CNPJ da entidade líder do conglomerado.
+4.  Busca os dados usando o CNPJ do líder.
+
+Isso garante que você sempre obtenha os dados consolidados corretos, que são os mais importantes para análise de risco e porte.
+
+#### b. Códigos de Documento COSIF
+
+-   **Individuais:** `4010` (Balancete), `4016` (Balanço).
+-   **Prudenciais:** `4060` (Balancete Consolidado), `4066` (Balanço Consolidado).
+
+### Métodos de Consulta
+
+#### `get_serie_temporal_indicador(...)`
+
+Busca a evolução de um indicador ao longo do tempo. Ideal para gráficos.
+
+**Parâmetros Adicionais:**
+-   `fillna` (opcional): Controla como tratar dados ausentes ou zeros.
+    -   `None` (padrão): Retorna os dados como estão (`0` é `0`, ausente é `NaN`).
+    -   `0`: Preenche todos os valores ausentes (`NaN`) com `0`.
+    -   `np.nan`: Converte os `0`s da fonte em `NaN`, unificando todos os dados não-positivos como "ausentes".
+
+**Exemplo:**
 ```python
-# Exemplo: Buscar o Ativo Total e o Patrimônio Líquido do Itaú em Mar/2024
-dados_cosif = analisador.get_dados_cosif(
-    identificador='ITAU UNIBANCO',
-    contas=['TOTAL GERAL DO ATIVO', 'PATRIMÔNIO LÍQUIDO'],
-    datas=202403,
-    tipo='prudencial', # 'prudencial' (padrão) ou 'individual'
-    documentos=[4060]  # Opcional: filtra pelo código do documento (ex: 4060, 4066)
-)
-display(dados_cosif)
-```
-
-#### b. `get_dados_ifdata(...)`
-
-Busca dados dos relatórios IFDATA, que contêm indicadores regulatórios como Índice de Basileia, Imobilização, etc.
-
-```python
-# Exemplo: Buscar o Índice de Basileia do Bradesco
-dados_ifdata = analisador.get_dados_ifdata(
-    identificador='BRADESCO',
-    contas=['Índice de Basileia'],
-    datas=202403 # IFDATA é geralmente trimestral
-)
-display(dados_ifdata)
-```
-
-#### c. `get_atributos_cadastro(...)`
-
-Busca informações cadastrais que são colunas diretas no `df_ifdata_cadastro`, como segmento, situação, etc.
-
-```python
-# Exemplo: Ver o segmento e a situação do Nubank
-atributos_nubank = analisador.get_atributos_cadastro(
-    identificador='NU FINANCEIRA',
-    atributos=['SEGMENTOTB_IFD_CAD', 'SITUACAO_IFD_CAD']
-)
-display(atributos_nubank)
-```
-
-#### d. `get_serie_temporal_indicador(...)`
-
-Uma função poderosa para analisar a evolução de um indicador ao longo do tempo, pronta para ser plotada.
-
-```python
-# Exemplo: Obter a série temporal do Lucro Líquido do BTG Pactual
-serie_lucro_btg = analisador.get_serie_temporal_indicador(
-    identificador='BTG PACTUAL',
-    conta='RESULTADO LÍQUIDO',
+# Obter a série do Patrimônio Líquido do Itaú, tratando zeros como dados ausentes
+serie_pl_itau = analisador.get_serie_temporal_indicador(
+    identificador='ITAU UNIBANCO S.A.',
+    conta='PATRIMÔNIO LÍQUIDO',
     data_inicio=202301,
     data_fim=202403,
-    fonte='COSIF', # 'COSIF' ou 'IFDATA'
-    documento_cosif=4060
+    fonte='COSIF',
+    documento_cosif=4060,
+    fillna=np.nan # Trata zeros como ausentes
 )
-# Plotar o resultado
-serie_lucro_btg.plot(title='Evolução do Lucro Líquido - BTG Pactual');
+serie_pl_itau.plot(title='Evolução do Patrimônio Líquido - Itaú');
 ```
 
-#### e. `comparar_indicadores(...)`
+#### `comparar_indicadores(...)`
 
-A função mais completa. Cria uma tabela comparativa para múltiplos bancos e múltiplos indicadores de diferentes fontes, ideal para relatórios e análises de pares.
+A ferramenta mais poderosa para análise de pares. Cria uma tabela-resumo com múltiplos indicadores de diferentes fontes.
 
+**Parâmetros Adicionais:**
+-   `fillna` (opcional): Mesma lógica da função de série temporal, aplicada a toda a tabela.
+
+**Exemplo:**
 ```python
 # Dicionário que define os indicadores desejados
 indicadores = {
     'Patrimônio Líquido': {'tipo': 'COSIF', 'conta': 'PATRIMÔNIO LÍQUIDO'},
     'Índice de Basileia': {'tipo': 'IFDATA', 'conta': 'Índice de Basileia'},
-    'Situação': {'tipo': 'Atributo', 'atributo': 'SITUACAO_IFD_CAD'}
+    'Situação Cadastral': {'tipo': 'Atributo', 'atributo': 'SITUACAO_IFD_CAD'}
 }
 
-# Lista de bancos para comparar
-bancos = ['ITAU', 'BRADESCO', 'NUBANK', 'BCO DO BRASIL S.A.']
+# Lista de bancos (use nomes do dicionario_entidades.xlsx para precisão)
+bancos = ['ITAU UNIBANCO S.A.', 'BANCO BRADESCO S.A.', 'NU FINANCEIRA S.A. - SOCIEDADE DE CRÉDITO, FINANCIAMENTO E INVESTIMENTO']
 
-# Gerar a tabela para uma data e documento específicos
-tabela_comparativa = analisador.comparar_indicadores(
+# Gerar um relatório limpo, preenchendo dados ausentes com 0
+tabela_relatorio = analisador.comparar_indicadores(
     identificadores=bancos,
     indicadores=indicadores,
     data=202403,
-    documento_cosif=4060
+    documento_cosif=4060,
+    fillna=0
 )
-display(tabela_comparativa)
+display(tabela_relatorio)
 ```
+*Outros métodos como `get_dados_cosif`, `get_dados_ifdata`, e `get_atributos_cadastro` também estão disponíveis para consultas mais granulares.*
 
-## 5. Manutenção e Debug
+## 5. Manutenção e Depuração
 
-### Atualizando os Dados
-Para obter os dados mais recentes, basta executar novamente o notebook `Code/DataDownload.ipynb`. Ele irá baixar apenas os arquivos dos meses que ainda não existem localmente.
-
-### Depurando Consultas
-Se uma consulta em `DataAnalysis2.ipynb` não retornar o resultado esperado (ex: uma tabela vazia ou valores `None`), siga estes passos:
-
-1.  **Verifique os Nomes:** Consulte o arquivo `referencia_nomes_consulta.xlsx` para garantir que você está usando os nomes exatos do banco e da conta. A busca por nome parcial (`'ITAU'`) é flexível, mas pode falhar se houver ambiguidades.
-2.  **Verifique a Data e o Documento:** Certifique-se de que os dados para a data e o documento solicitados existem. Lembre-se que dados IFDATA são geralmente trimestrais (ex: 202303, 202306, 202309, 202312).
-3.  **Use o Modo Debug:** O método `get_dados_cosif` possui um parâmetro `debug`. Ativá-lo fornecerá um output detalhado sobre o processo de busca, mostrando qual CNPJ foi usado e quantos registros foram encontrados em cada etapa do filtro.
-
-    ```python
-    # Exemplo de uso do modo debug
-    dados = analisador.get_dados_cosif(
-        identificador='NUBANK',
-        contas=['PATRIMÔNIO LÍQUIDO'],
-        datas=202403,
-        debug=True # Ativa a depuração
-    )
-    ```
-
-### Entendendo a "Mágica" por Trás da Classe
-A principal complexidade que o `AnalisadorBancario` resolve é a "tradução de identidade". Um banco pode ser conhecido por um CNPJ (ex: Nu Financeira), mas reportar seus dados consolidados sob o CNPJ do líder do conglomerado (ex: Nu Pagamentos).
-
--   O método interno `_find_cnpj` traduz um nome de banco para o seu CNPJ de 8 dígitos.
--   O método interno `_get_entity_identifiers` pega esse CNPJ e, usando o `df_ifdata_cadastro`, descobre qual é o CNPJ do líder do conglomerado (`cnpj_reporte_cosif`) e o código do conglomerado (`cod_congl_prud`).
--   Os métodos públicos (`get_dados_*`) usam esses identificadores corretos para filtrar os DataFrames, garantindo que você sempre obtenha os dados certos, independentemente do identificador que usou na consulta.
-
----
+-   **Atualizando os Dados:** Para buscar novos meses, simplesmente execute o notebook `Code/DataDownload.ipynb` novamente.
+-   **Consultas sem Resultado?**
+    1.  **Consulte os Dicionários:** Use os arquivos `.xlsx` no diretório `Output/`, especialmente `dicionario_entidades.xlsx`, para encontrar os nomes e contas corretos.
+    2.  **Verifique a Data/Documento:** Certifique-se de que os dados para a combinação de data e documento que você pediu existem.
+    3.  **Entenda a Lógica de Busca:** Lembre-se que para o `IFDATA`, a ferramenta tenta buscar por 3 chaves (Congl. Prudencial, Congl. Financeiro, e CNPJ Individual), parando na primeira que encontra sucesso. Se um dado não aparece, ele não existe em nenhuma dessas chaves para a data solicitada.
+```
