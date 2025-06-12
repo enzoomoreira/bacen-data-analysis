@@ -25,7 +25,9 @@ Ao clonar o repositório, você terá a seguinte estrutura:
 │   ├── DataDownload.ipynb        # Notebook para download e processamento dos dados (ETL).
 │   └── DataUtils.py              # Módulo com a classe AnalisadorBancario.
 │
-└── README.md                     # Este arquivo.
+├── .gitignore                    # Pastas e arquivos que o Git ignora.
+├── README.md                     # Este arquivo.
+└── requirements.txt              # Libraries necessárias.
 ```
 **Nota:** Os diretórios `Input/` e `Output/` serão criados automaticamente quando você executar o notebook `DataDownload.ipynb`.
 
@@ -35,8 +37,8 @@ Ao clonar o repositório, você terá a seguinte estrutura:
 
 1.  **Clone o Repositório:**
     ```bash
-    git clone [URL_DO_SEU_REPOSITORIO]
-    cd [NOME_DO_REPOSITORIO]
+    git clone https://github.com/enzoomoreira/bacen-data-analysis.git
+    cd bacen-data-analysis
     ```
 
 2.  **Instale as Dependências:**
@@ -70,7 +72,7 @@ analisador = AnalisadorBancario(diretorio_output=str(output_dir))
 
 ### Conceitos Fundamentais
 
-#### a. A "Mágica" da Tradução de Identidade
+#### a. Funcionamento da Tradução de Identidade
 
 A ferramenta foi projetada para lidar com a complexa estrutura de conglomerados do sistema financeiro.
 
@@ -175,4 +177,3 @@ tabela_estatistica = analisador.comparar_indicadores(
     1.  **Consulte os Dicionários:** Use os arquivos `.xlsx` no diretório `Output/`, especialmente `dicionario_entidades.xlsx` e os `dicionario_contas_*.xlsx`, para encontrar os nomes e códigos corretos.
     2.  **Verifique a Data/Documento:** Certifique-se de que os dados para a combinação de data e documento que você pediu existem.
     3.  **Entenda a Lógica de Busca:** Lembre-se que para o `IFDATA`, a ferramenta tenta buscar por 3 chaves (Congl. Prudencial, Congl. Financeiro, e CNPJ Individual), parando na primeira que encontra sucesso. Se um dado não aparece, ele não existe em nenhuma dessas chaves para a data solicitada.
-```
