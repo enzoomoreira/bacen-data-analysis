@@ -5,6 +5,7 @@ import numpy as np
 import re
 from pathlib import Path
 from typing import List, Dict, Union, Optional
+from pandas.tseries.offsets import MonthEnd
 
 # ==============================================================================
 # FUNÇÕES DE UTILIDADE GLOBAL
@@ -263,21 +264,52 @@ class AnalisadorBancario:
             # Passo 2: Buscar o valor de cada indicador
             for nome_coluna, info_ind in indicadores.items():
                 valor = None
-                tipo = info_ind['tipo'].upper()
-                
-                # A lógica de busca interna permanece a mesma, pois já é robusta
+                tipo = info_ind.get('tipo', '').upper()
+
                 if tipo == 'COSIF':
-                    df_res = self.get_dados_cosif(ident, contas=[info_ind['conta']], datas=[data], tipo='prudencial', documentos=[documento_cosif] if documento_cosif else None)
-                    if not df_res.empty: valor = df_res.sort_values('DOCUMENTO_COSIF', ascending=False)['VALOR_CONTA_COSIF'].iloc[0]
-                
+                    # fail-fast com mensagem informativa
+                    try:
+                        conta = info_ind['conta']
+                    except KeyError:
+                        raise KeyError(f"Indicador '{nome_coluna}' de tipo COSIF precisa da chave 'conta'.")
+                    df_res = self.get_dados_cosif(
+                        ident,
+                        contas=[conta],
+                        datas=[data],
+                        tipo='prudencial',
+                        documentos=[documento_cosif] if documento_cosif else None
+                    )
+                    if not df_res.empty:
+                        valor = df_res.sort_values('DOCUMENTO_COSIF', ascending=False)['VALOR_CONTA_COSIF'].iloc[0]
+
                 elif tipo == 'IFDATA':
-                    df_res = self.get_dados_ifdata(ident, contas=[info_ind['conta']], datas=[data])
-                    if not df_res.empty: valor = df_res['VALOR_CONTA_IFD_VAL'].iloc[0]
+                    try:
+                        conta = info_ind['conta']
+                    except KeyError:
+                        raise KeyError(f"Indicador '{nome_coluna}' de tipo IFDATA precisa da chave 'conta'.")
+                    df_res = self.get_dados_ifdata(
+                        ident,
+                        contas=[conta],
+                        datas=[data]
+                    )
+                    if not df_res.empty:
+                        valor = df_res['VALOR_CONTA_IFD_VAL'].iloc[0]
 
                 elif tipo == 'ATRIBUTO':
-                    df_res = self.get_atributos_cadastro(ident, atributos=[info_ind['atributo']])
-                    if not df_res.empty: valor = df_res[info_ind['atributo']].iloc[0]
-                        
+                    try:
+                        atributo = info_ind['atributo']
+                    except KeyError:
+                        raise KeyError(f"Indicador '{nome_coluna}' de tipo ATRIBUTO precisa da chave 'atributo'.")
+                    df_res = self.get_atributos_cadastro(
+                        ident,
+                        atributos=[atributo]
+                    )
+                    if not df_res.empty:
+                        valor = df_res[atributo].iloc[0]
+
+                else:
+                    raise ValueError(f"Tipo de indicador '{info_ind.get('tipo')}' não reconhecido em '{nome_coluna}'.")
+
                 dados_banco[nome_coluna] = valor
             
             lista_resultados.append(dados_banco)
@@ -327,35 +359,56 @@ class AnalisadorBancario:
         """
         try:
             start_date_str = f'{data_inicio // 100}-{data_inicio % 100:02d}-01'
-            end_date_str = f'{data_fim // 100}-{data_fim % 100:02d}-01'
-            datas_periodo = pd.date_range(start=start_date_str, end=end_date_str, freq='MS')
-            datas_yyyymm = datas_periodo.strftime('%Y%m').astype(int).tolist()
+            end_date_str   = f'{data_fim // 100}-{data_fim % 100:02d}-01'
+            # Usar Month End para index e reindex
+            datas_periodo = pd.date_range(start=start_date_str, end=end_date_str, freq='ME')
+            datas_yyyymm  = datas_periodo.strftime('%Y%m').astype(int).tolist()
         except ValueError:
             print("Erro: Formato de data inválido. Use YYYYMM.")
             return pd.DataFrame()
 
         df_pivot = pd.DataFrame()
         if fonte.upper() == 'COSIF':
-            df = self.get_dados_cosif(identificador, contas=[conta], datas=datas_yyyymm, tipo='prudencial', documentos=[documento_cosif] if documento_cosif else None)
+            df = self.get_dados_cosif(
+                identificador,
+                contas=[conta],
+                datas=datas_yyyymm,
+                tipo='prudencial',
+                documentos=[documento_cosif] if documento_cosif else None
+            )
             if not df.empty:
-                df_pivot = df.pivot_table(index='DATA', values='VALOR_CONTA_COSIF', aggfunc='first').rename(columns={'VALOR_CONTA_COSIF': conta})
-        
+                df_pivot = (
+                    df
+                    .pivot_table(index='DATA', values='VALOR_CONTA_COSIF', aggfunc='first')
+                    .rename(columns={'VALOR_CONTA_COSIF': conta})
+                )
+
         elif fonte.upper() == 'IFDATA':
-            df = self.get_dados_ifdata(identificador, contas=[conta], datas=datas_yyyymm)
+            df = self.get_dados_ifdata(
+                identificador,
+                contas=[conta],
+                datas=datas_yyyymm
+            )
             if not df.empty:
-                df_pivot = df.pivot_table(index='DATA', values='VALOR_CONTA_IFD_VAL', aggfunc='first').rename(columns={'VALOR_CONTA_IFD_VAL': conta})
-        
+                df_pivot = (
+                    df
+                    .pivot_table(index='DATA', values='VALOR_CONTA_IFD_VAL', aggfunc='first')
+                    .rename(columns={'VALOR_CONTA_IFD_VAL': conta})
+                )
+
         # Se não encontrou nenhum dado em nenhuma fonte, retorna um DataFrame vazio
         if df_pivot.empty:
             return pd.DataFrame()
 
-        # Converte o índice para Datetime para o reindex
-        df_pivot.index = pd.to_datetime(df_pivot.index, format='%Y%m')
-        
-        # Reindexa para garantir que todos os meses do período estejam presentes, preenchendo com NaN
+        # Converte o índice (YYYYMM → Timestamp primeiro dia) e ajusta para Month End
+        df_pivot.index = (
+            pd.to_datetime(df_pivot.index, format='%Y%m')
+            + MonthEnd(0)
+        )
+
+        # Reindexa para garantir que todos os Month-Ends estejam presentes
         df_pivot = df_pivot.reindex(datas_periodo)
-        
-        # --- LÓGICA DE PREENCHIMENTO APLICADA AQUI ---
+
         if fillna is not None:
             if pd.isna(fillna) or (isinstance(fillna, str) and fillna.lower() == 'nan'):
                 # Cenário: Tratar 0 como ausente (NaN)
@@ -363,6 +416,6 @@ class AnalisadorBancario:
             elif fillna == 0:
                 # Cenário: Preencher ausentes com 0
                 df_pivot[conta] = df_pivot[conta].fillna(0)
-            # Você poderia adicionar outras lógicas aqui, como .fillna('ffill') para preenchimento forward
-        
+            # (poderia-se adicionar ffill/bfill, etc.)
+
         return df_pivot
