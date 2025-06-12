@@ -103,20 +103,45 @@ class AnalisadorBancario:
                     info['cnpj_reporte_cosif'] = cnpj_lider
         return info
 
-    def get_dados_cosif(self, identificador: str, contas: List[str], datas: Union[int, List[int]], tipo: str = 'prudencial', documentos: Optional[Union[int, List[int]]] = None) -> pd.DataFrame:
-        """Busca dados de contas específicas no COSIF para um banco."""
+    def get_dados_cosif(
+        self,
+        identificador: str,
+        contas: Union[List[str], List[int], List[Union[str, int]]], # Aceita listas mistas
+        datas: Union[int, List[int]],
+        tipo: str = 'prudencial',
+        documentos: Optional[Union[int, List[int]]] = None
+    ) -> pd.DataFrame:
+        """Busca dados COSIF, aceitando uma lista mista de nomes e códigos de contas."""
         df_base = self.df_cosif_prud if tipo == 'prudencial' else self.df_cosif_ind
         if not isinstance(datas, list): datas = [datas]
         if documentos and not isinstance(documentos, list): documentos = [documentos]
+        
         cnpj_8 = self._find_cnpj(identificador)
         if not cnpj_8: return pd.DataFrame()
+        
         info_ent = self._get_entity_identifiers(cnpj_8)
         cnpj_busca = info_ent.get('cnpj_reporte_cosif', cnpj_8)
         if not cnpj_busca: return pd.DataFrame()
-        filtro = (df_base['CNPJ_8'] == cnpj_busca) & (df_base['DATA'].isin(datas)) & (df_base['NOME_CONTA_COSIF'].isin(contas))
+
+        # --- LÓGICA DE FILTRO PARA LISTAS MISTAS ---
+        filtro_base = (df_base['CNPJ_8'] == cnpj_busca) & (df_base['DATA'].isin(datas))
+        
+        # Separa os inputs em nomes e códigos
+        nomes_busca = [c for c in contas if isinstance(c, str)]
+        codigos_busca = [c for c in contas if isinstance(c, int)]
+
+        # Cria um filtro para cada tipo e os une com "OU" (|)
+        filtro_nomes = df_base['NOME_CONTA_COSIF'].isin(nomes_busca)
+        filtro_codigos = df_base['CONTA_COSIF'].isin(codigos_busca)
+        filtro_conta = filtro_nomes | filtro_codigos
+
+        filtro_final = filtro_base & filtro_conta
+        
         if documentos:
-            filtro &= df_base['DOCUMENTO_COSIF'].isin(documentos)
-        temp_df = df_base[filtro].copy()
+            filtro_final &= df_base['DOCUMENTO_COSIF'].isin(documentos)
+        
+        temp_df = df_base[filtro_final].copy()
+        
         if not temp_df.empty:
             temp_df['BANCO_CONSULTADO'] = identificador
         return temp_df.reset_index(drop=True)
@@ -124,60 +149,40 @@ class AnalisadorBancario:
     def get_dados_ifdata(
         self,
         identificador: str,
-        contas: List[str],
+        contas: Union[List[str], List[int], List[Union[str, int]]], # Aceita listas mistas
         datas: Union[int, List[int]]
     ) -> pd.DataFrame:
-        """
-        Busca dados de contas específicas no IFDATA Valores para um banco.
-        Implementa uma busca em cascata de 3 níveis:
-        1. Código do Conglomerado Prudencial
-        2. Código do Conglomerado Financeiro
-        3. Código da Instituição Individual (CNPJ_8)
-        """
-        if not isinstance(datas, list):
-            datas = [datas]
+        """Busca dados IFDATA, aceitando uma lista mista de nomes e códigos de contas."""
+        if not isinstance(datas, list): datas = [datas]
         
-        # Passo 1: Encontrar todos os identificadores possíveis para a entidade
+        # ... (lógica de busca de IDs mantida) ...
         cnpj_8 = self._find_cnpj(identificador)
-        if not cnpj_8:
-            return pd.DataFrame()
-
-        # O _get_entity_identifiers já nos dá o cnpj_8 e o cod_congl_prud.
-        # Agora, também precisamos do cod_congl_fin.
+        if not cnpj_8: return pd.DataFrame()
         info_ent = self._get_entity_identifiers(cnpj_8)
-        
-        # Busca a linha de cadastro para pegar o código financeiro
         entry_cad = self.df_ifd_cad[self.df_ifd_cad['CNPJ_8'] == cnpj_8].sort_values('DATA', ascending=False)
         cod_congl_fin_busca = None
-        if not entry_cad.empty:
-            cod_congl_fin_busca = entry_cad.iloc[0].get('COD_CONGL_FIN_IFD_CAD')
-
-        # Cria a lista de IDs para a busca em cascata, na ordem de prioridade
-        ids_para_buscar = [
-            info_ent.get('cod_congl_prud'),
-            cod_congl_fin_busca,
-            cnpj_8
-        ]
-        # Remove Nones e duplicatas, mantendo a ordem
+        if not entry_cad.empty: cod_congl_fin_busca = entry_cad.iloc[0].get('COD_CONGL_FIN_IFD_CAD')
+        ids_para_buscar = [info_ent.get('cod_congl_prud'), cod_congl_fin_busca, cnpj_8]
         ids_para_buscar = [str(i) for i in ids_para_buscar if pd.notna(i)]
         ids_para_buscar = list(dict.fromkeys(ids_para_buscar))
 
-        # Passo 2: Iterar sobre os IDs e retornar o primeiro resultado encontrado
         for id_busca in ids_para_buscar:
-            filtro = (
-                (self.df_ifd_val['COD_INST_IFD_VAL'] == id_busca) &
-                (self.df_ifd_val['DATA'].isin(datas)) &
-                (self.df_ifd_val['NOME_CONTA_IFD_VAL'].isin(contas))
-            )
-            df_resultado = self.df_ifd_val[filtro].copy()
+            # --- LÓGICA DE FILTRO PARA LISTAS MISTAS ---
+            filtro_base = (self.df_ifd_val['COD_INST_IFD_VAL'] == id_busca) & (self.df_ifd_val['DATA'].isin(datas))
             
-            # Se encontrou resultado, anexa informações e retorna.
+            nomes_busca = [c for c in contas if isinstance(c, str)]
+            codigos_busca = [c for c in contas if isinstance(c, int)]
+            
+            filtro_nomes = self.df_ifd_val['NOME_CONTA_IFD_VAL'].isin(nomes_busca)
+            filtro_codigos = self.df_ifd_val['CONTA_IFD_VAL'].isin(codigos_busca)
+            filtro_conta = filtro_nomes | filtro_codigos
+            
+            df_resultado = self.df_ifd_val[filtro_base & filtro_conta].copy()
+            
             if not df_resultado.empty:
                 df_resultado['BANCO_CONSULTADO'] = identificador
-                df_resultado['ID_BUSCA_USADO'] = id_busca # Info de debug útil
                 return df_resultado.reset_index(drop=True)
 
-        # Se nenhuma das tentativas funcionou, retorna um DataFrame vazio.
         return pd.DataFrame()
 
     def get_atributos_cadastro(self, identificador: Union[str, List[str]], atributos: List[str]) -> pd.DataFrame:

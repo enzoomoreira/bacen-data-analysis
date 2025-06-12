@@ -62,7 +62,7 @@ A classe `AnalisadorBancario` é a sua interface para os dados. Após inicializ�
 ```python
 from Code.DataUtils import AnalisadorBancario
 from pathlib import Path
-import numpy as np # Importe o numpy para usar np.nan
+import numpy as np # Importe para usar np.nan
 
 output_dir = Path('./Output').resolve()
 analisador = AnalisadorBancario(diretorio_output=str(output_dir))
@@ -75,84 +75,104 @@ analisador = AnalisadorBancario(diretorio_output=str(output_dir))
 A ferramenta foi projetada para lidar com a complexa estrutura de conglomerados do sistema financeiro.
 
 -   **Entidade Individual:** Uma instituição específica (ex: "Itaú Veículos", com seu próprio CNPJ).
--   **Conglomerado:** O grupo financeiro ao qual a entidade pertence (ex: Itaú Unibanco). Os dados consolidados são reportados por uma entidade **líder**.
+-   **Conglomerado:** O grupo financeiro ao qual a entidade pertence. Os dados consolidados (prudenciais e financeiros) são reportados por uma instituição **líder**.
 
-Quando você pede um dado prudencial para "Itaú Veículos", a classe automaticamente:
-1.  Encontra o CNPJ da entidade.
-2.  Descobre a qual conglomerado ela pertence.
-3.  Identifica o CNPJ da entidade líder do conglomerado.
-4.  Busca os dados usando o CNPJ do líder.
-
-Isso garante que você sempre obtenha os dados consolidados corretos, que são os mais importantes para análise de risco e porte.
+Quando você pede um dado para "Itaú Veículos", a classe automaticamente descobre a qual conglomerado ele pertence e busca os dados reportados pelo líder. Isso é essencial para análises de risco e porte do grupo.
 
 #### b. Códigos de Documento COSIF
 
 -   **Individuais:** `4010` (Balancete), `4016` (Balanço).
 -   **Prudenciais:** `4060` (Balancete Consolidado), `4066` (Balanço Consolidado).
 
-### Métodos de Consulta
+### Métodos Principais de Consulta
 
-#### `get_serie_temporal_indicador(...)`
+Os métodos a seguir são os blocos de construção para suas análises.
 
-Busca a evolução de um indicador ao longo do tempo. Ideal para gráficos.
+-   **`get_dados_cosif(...)`**: Busca dados contábeis (Balanço/DRE).
+-   **`get_dados_ifdata(...)`**: Busca indicadores regulatórios (Basileia, etc.).
+-   **`get_atributos_cadastro(...)`**: Busca informações cadastrais (Segmento, Situação, etc.).
+-   **`get_serie_temporal_indicador(...)`**: Busca a evolução de um indicador ao longo do tempo.
+-   **`comparar_indicadores(...)`**: Cria uma tabela-resumo para análise de pares.
 
-**Parâmetros Adicionais:**
--   `fillna` (opcional): Controla como tratar dados ausentes ou zeros.
-    -   `None` (padrão): Retorna os dados como estão (`0` é `0`, ausente é `NaN`).
-    -   `0`: Preenche todos os valores ausentes (`NaN`) com `0`.
-    -   `np.nan`: Converte os `0`s da fonte em `NaN`, unificando todos os dados não-positivos como "ausentes".
+### Técnicas Avançadas de Consulta
 
-**Exemplo:**
+#### a. Buscando por Nome ou Código de Conta
+
+Todos os métodos que aceitam o parâmetro `contas` são flexíveis. Você pode passar uma lista de nomes (strings), uma lista de códigos (inteiros), ou uma **lista mista**.
+
 ```python
-# Obter a série do Patrimônio Líquido do Itaú, tratando zeros como dados ausentes
-serie_pl_itau = analisador.get_serie_temporal_indicador(
-    identificador='ITAU UNIBANCO S.A.',
-    conta='PATRIMÔNIO LÍQUIDO',
-    data_inicio=202301,
-    data_fim=202403,
-    fonte='COSIF',
-    documento_cosif=4060,
-    fillna=np.nan # Trata zeros como ausentes
+# Exemplo de consulta mista para o Bradesco
+contas_mistas = [
+    'TOTAL GERAL DO ATIVO', # Busca por nome
+    60000002              # Busca pelo código do 'PATRIMÔNIO LÍQUIDO'
+]
+
+dados_mistos = analisador.get_dados_cosif(
+    identificador='BANCO BRADESCO S.A.',
+    contas=contas_mistas,
+    datas=202403
 )
-serie_pl_itau.plot(title='Evolução do Patrimônio Líquido - Itaú');
+
+# O resultado sempre mostrará o nome da conta, independentemente de como foi buscada.
+display(dados_mistos)
 ```
 
-#### `comparar_indicadores(...)`
+#### b. Buscando Dados Individuais vs. Prudenciais
 
-A ferramenta mais poderosa para análise de pares. Cria uma tabela-resumo com múltiplos indicadores de diferentes fontes.
+Para análises COSIF, você pode especificar se deseja os dados da entidade específica ou do conglomerado consolidado.
 
-**Parâmetros Adicionais:**
--   `fillna` (opcional): Mesma lógica da função de série temporal, aplicada a toda a tabela.
-
-**Exemplo:**
 ```python
-# Dicionário que define os indicadores desejados
-indicadores = {
-    'Patrimônio Líquido': {'tipo': 'COSIF', 'conta': 'PATRIMÔNIO LÍQUIDO'},
-    'Índice de Basileia': {'tipo': 'IFDATA', 'conta': 'Índice de Basileia'},
-    'Situação Cadastral': {'tipo': 'Atributo', 'atributo': 'SITUACAO_IFD_CAD'}
-}
+# Busca o Ativo Total APENAS da entidade Nu Financeira S.A.
+dados_individuais = analisador.get_dados_cosif(
+    identificador='NU FINANCEIRA S.A.',
+    contas=['TOTAL GERAL DO ATIVO'],
+    datas=202403,
+    tipo='individual' # A chave é o parâmetro 'tipo'
+)
 
-# Lista de bancos (use nomes do dicionario_entidades.xlsx para precisão)
-bancos = ['ITAU UNIBANCO S.A.', 'BANCO BRADESCO S.A.', 'NU FINANCEIRA S.A. - SOCIEDADE DE CRÉDITO, FINANCIAMENTO E INVESTIMENTO']
+# Busca o Ativo Total do CONGLOMERADO Nubank
+dados_prudenciais = analisador.get_dados_cosif(
+    identificador='NU FINANCEIRA S.A.',
+    contas=['TOTAL GERAL DO ATIVO'],
+    datas=202403,
+    tipo='prudencial' # Este é o comportamento padrão
+)
+```
 
-# Gerar um relatório limpo, preenchendo dados ausentes com 0
+#### c. Tratando Zeros e Dados Ausentes (`fillna`)
+
+Os métodos `comparar_indicadores` e `get_serie_temporal_indicador` possuem um parâmetro `fillna` para controlar a apresentação de dados ausentes (`NaN`) e zeros (`0`).
+
+**Cenário 1: Padrão (Dados Brutos)**
+Se você não passar o parâmetro `fillna`, os dados são retornados como estão. Ideal para análise estatística precisa.
+- `0` é retornado como `0`.
+- Ausente é retornado como `NaN`.
+
+**Cenário 2: Relatório Limpo (Preencher com Zero)**
+Para relatórios visuais onde `NaN` não é desejado.
+```python
 tabela_relatorio = analisador.comparar_indicadores(
-    identificadores=bancos,
-    indicadores=indicadores,
-    data=202403,
-    documento_cosif=4060,
+    ...,
     fillna=0
 )
-display(tabela_relatorio)
+# Output: Todos os NaN (dados ausentes) são convertidos para 0.
 ```
-*Outros métodos como `get_dados_cosif`, `get_dados_ifdata`, e `get_atributos_cadastro` também estão disponíveis para consultas mais granulares.*
+
+**Cenário 3: Análise Estatística Pura (Tratar Zeros como Ausentes)**
+Útil quando um `0` pode significar "não aplicável" em vez de um valor real.
+```python
+tabela_estatistica = analisador.comparar_indicadores(
+    ...,
+    fillna=np.nan
+)
+# Output: Todos os 0s e os dados ausentes são representados como NaN.
+```
 
 ## 5. Manutenção e Depuração
 
 -   **Atualizando os Dados:** Para buscar novos meses, simplesmente execute o notebook `Code/DataDownload.ipynb` novamente.
 -   **Consultas sem Resultado?**
-    1.  **Consulte os Dicionários:** Use os arquivos `.xlsx` no diretório `Output/`, especialmente `dicionario_entidades.xlsx`, para encontrar os nomes e contas corretos.
+    1.  **Consulte os Dicionários:** Use os arquivos `.xlsx` no diretório `Output/`, especialmente `dicionario_entidades.xlsx` e os `dicionario_contas_*.xlsx`, para encontrar os nomes e códigos corretos.
     2.  **Verifique a Data/Documento:** Certifique-se de que os dados para a combinação de data e documento que você pediu existem.
     3.  **Entenda a Lógica de Busca:** Lembre-se que para o `IFDATA`, a ferramenta tenta buscar por 3 chaves (Congl. Prudencial, Congl. Financeiro, e CNPJ Individual), parando na primeira que encontra sucesso. Se um dado não aparece, ele não existe em nenhuma dessas chaves para a data solicitada.
 ```
