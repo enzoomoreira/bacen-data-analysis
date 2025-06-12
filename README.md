@@ -4,7 +4,7 @@
 
 Este projeto é um pipeline completo de dados e uma ferramenta de análise para os relatórios financeiros de instituições brasileiras, disponibilizados pelo Banco Central do Brasil (BCB). Ele automatiza o processo de baixar, limpar, padronizar e conectar dados complexos de múltiplas fontes (COSIF e IFDATA), tornando-os acessíveis para análise através de uma interface Python simples e poderosa.
 
-O objetivo principal é permitir que analistas, estudantes e pesquisadores possam extrair insights valiosos dos dados do BCB sem a necessidade de lidar com a complexidade do tratamento e da unificação dos dados brutos.
+O objetivo principal é permitir a extração de insights valiosos dos dados do BCB sem a necessidade de lidar com a complexidade do tratamento e da unificação dos dados brutos.
 
 ### Fluxo do Projeto
 
@@ -18,7 +18,8 @@ Ao clonar o repositório, você terá a seguinte estrutura:
 ```
 .
 ├── Analysis/
-│   ├── DataAnalysis_example.ipynb  # Notebook com exemplos de como usar a ferramenta.
+│   ├── Banks.csv                     # Lista de bancos para demonstração nos exemplos.
+│   ├── DataAnalysis_example.ipynb    # Notebook com exemplos de como usar a ferramenta.
 │   └── DataAnalysis_example_2.ipynb  # Notebook com exemplos de como usar a ferramenta.
 │
 ├── Code/
