@@ -63,11 +63,21 @@ A classe `AnalisadorBancario` é a sua interface para os dados. Após inicializ�
 
 ### Inicialização
 ```python
-from Code.DataUtils import AnalisadorBancario
+import pandas as pd
+import numpy as np
+import sys
 from pathlib import Path
-import numpy as np # Importe para usar np.nan
 
-output_dir = Path('./Output').resolve()
+# Setup do path para encontrar os módulos do projeto
+code_dir = Path('.').resolve().parent / 'Code'
+if str(code_dir) not in sys.path:
+    sys.path.append(str(code_dir))
+
+import DataUtils as du
+from DataUtils import AnalisadorBancario
+
+# Inicialização do Analisador
+output_dir = Path('.').resolve().parent / 'Output'
 analisador = AnalisadorBancario(diretorio_output=str(output_dir))
 ```
 
