@@ -9,7 +9,7 @@ O objetivo principal é permitir a extração de insights valiosos dos dados do 
 ### Fluxo do Projeto
 
 1.  **ETL (Extração, Transformação e Carga):** O notebook `Code/DataDownload.ipynb` baixa os relatórios, padroniza as colunas, resolve inconsistências e salva os dados limpos em formato Parquet, otimizado para performance.
-2.  **Análise de Dados:** Notebooks de exemplo, `Analysis/DataAnalysis_example.ipynb` e `Analysis/DataAnalysis_example_2.ipynb`, demonstram como utilizar a classe `AnalisadorBancario` (do arquivo `Code/DataUtils.py`), que é o coração da ferramenta, para realizar consultas de forma intuitiva.
+2.  **Análise de Dados:** Notebooks de exemplo, `Analysis/DataAnalysis.ipynb` e `Analysis/DataAnalysis_example.ipynb`, demonstram como utilizar a classe `AnalisadorBancario` (do arquivo `Code/DataUtils.py`), que é o coração da ferramenta, para realizar consultas de forma intuitiva.
 
 ## 2. Estrutura de Arquivos
 
@@ -20,7 +20,7 @@ Ao clonar o repositório, você terá a seguinte estrutura:
 ├── Analysis/
 │   ├── Banks.csv                     # Lista de bancos para demonstração nos exemplos.
 │   ├── DataAnalysis_example.ipynb    # Notebook com exemplos de como usar a ferramenta.
-│   └── DataAnalysis_example_2.ipynb  # Notebook com exemplos de como usar a ferramenta.
+│   └── DataAnalysis.ipynb            # Notebook com exemplo de uma tabela completa.
 │
 ├── Code/
 │   ├── DataDownload.ipynb        # Notebook para download e processamento dos dados (ETL).
@@ -53,7 +53,7 @@ Ao clonar o repositório, você terá a seguinte estrutura:
     -   Ao final, o diretório `Output/` conterá os arquivos `.parquet` processados e os **dicionários de referência em Excel**, que são cruciais para a análise.
 
 4.  **Explore e Analise:**
-    -   Abra o notebook `Analysis/DataAnalysis_example.ipynb` ou `Analysis/DataAnalysis_example_2.ipynb`. Eles servem como tutoriais práticos.
+    -   Abra o notebook `Analysis/DataAnalysis.ipynb` ou `Analysis/DataAnalysis_example.ipynb` . Eles servem como tutoriais práticos.
     -   Consulte os arquivos gerados em `Output/`, especialmente `dicionario_entidades.xlsx`, para encontrar os nomes e identificadores corretos dos bancos.
     -   Crie seu próprio notebook de análise e comece a usar a classe `AnalisadorBancario`!
 
@@ -81,37 +81,34 @@ output_dir = Path('.').resolve().parent / 'Output'
 analisador = AnalisadorBancario(diretorio_output=str(output_dir))
 ```
 
-### Conceitos Fundamentais
+### **O Padrão de Saída: Consistência é Chave**
 
-#### a. Funcionamento da Tradução de Identidade
+Um dos principais recursos da classe é a **consistência da saída**. Todos os métodos que retornam dados sobre uma ou mais entidades sempre incluirão as colunas `Nome_Entidade` e `CNPJ_8` no início do DataFrame. Isso garante que você sempre saiba a qual instituição os dados se referem, usando seu nome oficial e CNPJ padronizado.
 
-A ferramenta foi projetada para lidar com a complexa estrutura de conglomerados do sistema financeiro.
-
--   **Entidade Individual:** Uma instituição específica (ex: "Itaú Veículos", com seu próprio CNPJ).
--   **Conglomerado:** O grupo financeiro ao qual a entidade pertence. Os dados consolidados (prudenciais e financeiros) são reportados por uma instituição **líder**.
-
-Quando você pede um dado para "Itaú Veículos", a classe automaticamente descobre a qual conglomerado ele pertence e busca os dados reportados pelo líder. Isso é essencial para análises de risco e porte do grupo.
-
-#### b. Códigos de Documento COSIF
-
--   **Individuais:** `4010` (Balancete), `4016` (Balanço).
--   **Prudenciais:** `4060` (Balancete Consolidado), `4066` (Balanço Consolidado).
+```
+# Exemplo da estrutura de saída padrão
+  Nome_Entidade            CNPJ_8    ... (outras colunas de dados)
+0 BANCO BRADESCO S.A.      60746948  ...
+1 NU FINANCEIRA S.A. ...   30680829  ...
+```
 
 ### Métodos Principais de Consulta
 
-Os métodos a seguir são os blocos de construção para suas análises.
+-   `get_dados_cosif(...)`: Busca dados contábeis detalhados (Balanço/DRE) da fonte COSIF. Retorna a tabela de dados brutos da fonte, enriquecida com `Nome_Entidade` e `CNPJ_8`.
 
--   **`get_dados_cosif(...)`**: Busca dados contábeis (Balanço/DRE).
--   **`get_dados_ifdata(...)`**: Busca indicadores regulatórios (Basileia, etc.).
--   **`get_atributos_cadastro(...)`**: Busca informações cadastrais (Segmento, Situação, etc.).
--   **`get_serie_temporal_indicador(...)`**: Busca a evolução de um indicador ao longo do tempo.
--   **`comparar_indicadores(...)`**: Cria uma tabela-resumo para análise de pares.
+-   `get_dados_ifdata(...)`: Busca indicadores regulatórios (Basileia, etc.) da fonte IF.DATA. Além de `Nome_Entidade` e `CNPJ_8`, este método também retorna a coluna `ID_BUSCA_USADO`, útil para depuração (veja a seção de Manutenção).
 
-### Técnicas Avançadas de Consulta
+-   `get_atributos_cadastro(...)`: Busca informações cadastrais de uma entidade (Segmento, Situação, etc.).
+
+-   `comparar_indicadores(...)`: Cria uma tabela-resumo "pivotada" para comparar múltiplos indicadores entre várias instituições lado a lado. Ideal para análise de pares.
+
+-   `get_serie_temporal_indicador(...)`: Busca a evolução de um único indicador ao longo do tempo, retornando uma série temporal pronta para plotagem.
+
+### Exemplos de Uso e Técnicas Avançadas
 
 #### a. Buscando por Nome ou Código de Conta
 
-Todos os métodos que aceitam o parâmetro `contas` são flexíveis. Você pode passar uma lista de nomes (strings), uma lista de códigos (inteiros), ou uma **lista mista**.
+Todos os métodos que aceitam o parâmetro `contas` são flexíveis. Você pode passar uma lista de nomes (strings), códigos (inteiros), ou uma **lista mista**.
 
 ```python
 # Exemplo de consulta mista para o Bradesco
@@ -127,14 +124,22 @@ dados_mistos = analisador.get_dados_cosif(
 )
 
 # O resultado sempre mostrará o nome da conta, independentemente de como foi buscada.
-display(dados_mistos)
+display(dados_mistos[['Nome_Entidade', 'CONTA_COSIF', 'NOME_CONTA_COSIF', 'VALOR_CONTA_COSIF']])
 ```
 
 #### b. Buscando Dados Individuais vs. Prudenciais
 
-Para análises COSIF, você pode especificar se deseja os dados da entidade específica ou do conglomerado consolidado.
+Para análises COSIF, você pode especificar se deseja os dados da entidade específica ou do conglomerado consolidado, usando o parâmetro `tipo`.
 
 ```python
+# Busca o Ativo Total do CONGLOMERADO Nubank (comportamento padrão)
+dados_prudenciais = analisador.get_dados_cosif(
+    identificador='NU FINANCEIRA S.A.',
+    contas=['TOTAL GERAL DO ATIVO'],
+    datas=202403,
+    tipo='prudencial' # ou omitindo o parâmetro 'tipo'
+)
+
 # Busca o Ativo Total APENAS da entidade Nu Financeira S.A.
 dados_individuais = analisador.get_dados_cosif(
     identificador='NU FINANCEIRA S.A.',
@@ -142,43 +147,22 @@ dados_individuais = analisador.get_dados_cosif(
     datas=202403,
     tipo='individual' # A chave é o parâmetro 'tipo'
 )
-
-# Busca o Ativo Total do CONGLOMERADO Nubank
-dados_prudenciais = analisador.get_dados_cosif(
-    identificador='NU FINANCEIRA S.A.',
-    contas=['TOTAL GERAL DO ATIVO'],
-    datas=202403,
-    tipo='prudencial' # Este é o comportamento padrão
-)
 ```
 
 #### c. Tratando Zeros e Dados Ausentes (`fillna`)
 
 Os métodos `comparar_indicadores` e `get_serie_temporal_indicador` possuem um parâmetro `fillna` para controlar a apresentação de dados ausentes (`NaN`) e zeros (`0`).
 
-**Cenário 1: Padrão (Dados Brutos)**
-Se você não passar o parâmetro `fillna`, os dados são retornados como estão. Ideal para análise estatística precisa.
-- `0` é retornado como `0`.
-- Ausente é retornado como `NaN`.
+-   **`fillna=None` (Padrão):** Retorna os dados como estão. `0` é `0`, ausente é `NaN`.
+-   **`fillna=0`:** Converte todos os `NaN` (ausentes) para `0`. Ideal para relatórios visuais.
+-   **`fillna=np.nan`:** Converte todos os `0` para `NaN`. Útil quando `0` pode significar "não aplicável".
 
-**Cenário 2: Relatório Limpo (Preencher com Zero)**
-Para relatórios visuais onde `NaN` não é desejado.
 ```python
-tabela_relatorio = analisador.comparar_indicadores(
-    ...,
-    fillna=0
-)
-# Output: Todos os NaN (dados ausentes) são convertidos para 0.
-```
-
-**Cenário 3: Análise Estatística Pura (Tratar Zeros como Ausentes)**
-Útil quando um `0` pode significar "não aplicável" em vez de um valor real.
-```python
+# Exemplo: Tratar zeros como ausentes na tabela comparativa
 tabela_estatistica = analisador.comparar_indicadores(
     ...,
     fillna=np.nan
 )
-# Output: Todos os 0s e os dados ausentes são representados como NaN.
 ```
 
 ## 5. Manutenção e Depuração
@@ -187,4 +171,4 @@ tabela_estatistica = analisador.comparar_indicadores(
 -   **Consultas sem Resultado?**
     1.  **Consulte os Dicionários:** Use os arquivos `.xlsx` no diretório `Output/`, especialmente `dicionario_entidades.xlsx` e os `dicionario_contas_*.xlsx`, para encontrar os nomes e códigos corretos.
     2.  **Verifique a Data/Documento:** Certifique-se de que os dados para a combinação de data e documento que você pediu existem.
-    3.  **Entenda a Lógica de Busca:** Lembre-se que para o `IFDATA`, a ferramenta tenta buscar por 3 chaves (Congl. Prudencial, Congl. Financeiro, e CNPJ Individual), parando na primeira que encontra sucesso. Se um dado não aparece, ele não existe em nenhuma dessas chaves para a data solicitada.
+    3.  **Entenda a Lógica de Busca (IF.DATA):** O método `get_dados_ifdata` possui uma busca em múltiplos estágios. A coluna `ID_BUSCA_USADO` na saída informa qual chave encontrou o dado (o CNPJ da própria entidade, o código do conglomerado prudencial ou o código do conglomerado financeiro). Isso é uma ferramenta poderosa para entender a origem do dado. Se um valor não aparece, ele não existe em nenhuma dessas chaves para a data solicitada.
