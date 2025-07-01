@@ -12,16 +12,26 @@ from pandas.tseries.offsets import MonthEnd
 # ==============================================================================
 
 def standardize_cnpj_base8(cnpj_input: Union[str, pd.Series]) -> Union[str, pd.Series]:
-    """Padroniza um CNPJ ou código para uma string de 8 dígitos."""
+    """
+    Padroniza um CNPJ ou código para uma string de 8 dígitos, lidando com
+    diferentes formatos de entrada.
+    """
     def _process_single_cnpj(cnpj_element_val):
-        if pd.isna(cnpj_element_val): return None
-        cnpj_str_val = str(cnpj_element_val).split('.')[0]
-        cleaned = re.sub(r'[^0-9]', '', cnpj_str_val)
-        if not cleaned: return None
-        return cleaned.ljust(8, '0')[:8]
+        if pd.isna(cnpj_element_val):
+            return None
+        
+        # 1. Converte para string e remove caracteres não numéricos.
+        cleaned = re.sub(r'[^0-9]', '', str(cnpj_element_val).strip())
+        
+        if not cleaned:
+            return None
+            
+        # 2. Usa zfill() para preencher com zeros à ESQUERDA e pega os 8 primeiros dígitos.
+        return cleaned.zfill(8)[:8]
 
     if isinstance(cnpj_input, pd.Series):
         return cnpj_input.apply(_process_single_cnpj)
+    
     return _process_single_cnpj(cnpj_input)
 
 # ==============================================================================
@@ -62,7 +72,7 @@ class AnalisadorBancario:
             print(f"  - Mapeamento interno criado para {len(self._mapa_nomes_df):,} nomes únicos.")
             
         except FileNotFoundError as e:
-            print(f"Erro Crítico: Arquivo não encontrado! Verifique o caminho do diretório de output.")
+            print("Erro Crítico: Arquivo não encontrado! Verifique o caminho do diretório de output.")
             print(f"Detalhe: {e}")
             raise
 
@@ -159,7 +169,7 @@ class AnalisadorBancario:
         cnpj_8 = self._find_cnpj(identificador)
         if not cnpj_8:
             # Retornar DF vazio com colunas padronizadas
-            # As novas colunas são Nome_Entidade e CNPJ_8, não mais BANCO_CONSULTADO
+            # As novas colunas são Nome_Entidade e CNPJ_8
             return pd.DataFrame(columns=['Nome_Entidade', 'CNPJ_8'] + [c for c in df_base.columns if c not in ['NOME_INSTITUICAO_COSIF', 'CNPJ_8']])
 
         info_ent = self._get_entity_identifiers(cnpj_8)
@@ -272,7 +282,6 @@ class AnalisadorBancario:
             if not cnpj_8:
                 continue
 
-            # --- Usa a fonte única da verdade para obter o nome ---
             info_ent = self._get_entity_identifiers(cnpj_8)
             nome_entidade = info_ent.get('nome_entidade') or ident # Fallback para o input
 
@@ -324,7 +333,6 @@ class AnalisadorBancario:
                 lista_resultados.append(dados_banco)
                 continue
 
-            # --- ALTERAÇÃO PRINCIPAL: Usa a fonte única da verdade ---
             # Remove a lógica antiga com `_mapa_nomes_df`
             info_ent = self._get_entity_identifiers(cnpj_8)
             nome_entidade = info_ent.get('nome_entidade') or ident # Fallback para o input
@@ -387,36 +395,55 @@ class AnalisadorBancario:
         data_fim: int,
         fonte: str = 'COSIF',
         documento_cosif: Optional[int] = 4060,
-        fillna: Optional[Union[int, float, str]] = None
+        fillna: Optional[Union[int, float, str]] = None,
+        formato_saida: str = 'wide'
     ) -> pd.DataFrame:
         """
-        Busca a série temporal de um indicador, com opção flexível de preenchimento.
+        Busca a série temporal de um indicador, com identificação padronizada e formato de saída flexível.
 
         Args:
-            ...
+            identificador (str): Nome ou CNPJ_8 da instituição.
+            conta (Union[str, int]): Nome ou código da conta a ser buscada.
+            data_inicio (int): Data de início da busca no formato YYYYMM.
+            data_fim (int): Data de fim da busca no formato YYYYMM.
+            fonte (str, opcional): Fonte dos dados ('COSIF' ou 'IFDATA'). Padrão 'COSIF'.
+            documento_cosif (int, opcional): Documento COSIF específico a ser usado. Padrão 4060.
             fillna (opcional):
                 - None (padrão): Retorna os dados como estão (0 é 0, ausente é NaN).
                 - 0: Preenche todos os valores ausentes (NaN) com 0.
                 - np.nan ou 'nan': Converte todos os 0s e ausentes para NaN.
+            formato_saida (str, opcional): Formato do DataFrame retornado.
+                - 'wide' (padrão): Índice de data, uma coluna para o valor do indicador.
+                - 'long': Colunas 'DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'. Ideal para BI.
+
+        Returns:
+            pd.DataFrame: A série temporal no formato especificado.
         """
+        # Validação de parâmetros
+        cnpj_8 = self._find_cnpj(identificador)
+        if not cnpj_8:
+            print(f"AVISO: Identificador '{identificador}' não encontrado. Retornando DataFrame vazio.")
+            if formato_saida.lower() == 'long':
+                return pd.DataFrame(columns=['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'])
+            return pd.DataFrame()
+
+        info_ent = self._get_entity_identifiers(cnpj_8)
+        nome_entidade = info_ent.get('nome_entidade', identificador) # Fallback para o input
+
         try:
             start_date_str = f'{data_inicio // 100}-{data_inicio % 100:02d}-01'
-            
             end_date_ts = pd.to_datetime(f'{data_fim}', format='%Y%m') + MonthEnd(0)
-            
             datas_periodo = pd.date_range(start=start_date_str, end=end_date_ts, freq='ME')
-            
             datas_yyyymm  = datas_periodo.strftime('%Y%m').astype(int).tolist()
         except ValueError:
             print("Erro: Formato de data inválido. Use YYYYMM.")
             return pd.DataFrame()
 
         df_pivot = pd.DataFrame()
-        # Garante que 'conta' seja sempre uma lista para os métodos de busca
         contas_busca = [conta]
+        coluna_nome = conta if isinstance(conta, str) else str(conta)
 
         if fonte.upper() == 'COSIF':
-            # --- Removido o parâmetro 'tipo' fixo ---
             df = self.get_dados_cosif(
                 identificador,
                 contas=contas_busca,
@@ -424,13 +451,7 @@ class AnalisadorBancario:
                 documentos=[documento_cosif] if documento_cosif else None
             )
             if not df.empty:
-                # Usa o nome da conta original para a coluna do pivot
-                coluna_nome = conta if isinstance(conta, str) else str(conta)
-                df_pivot = (
-                    df
-                    .pivot_table(index='DATA', values='VALOR_CONTA_COSIF', aggfunc='first')
-                    .rename(columns={'VALOR_CONTA_COSIF': coluna_nome})
-                )
+                df_pivot = df.pivot_table(index='DATA', values='VALOR_CONTA_COSIF', aggfunc='first').rename(columns={'VALOR_CONTA_COSIF': coluna_nome})
 
         elif fonte.upper() == 'IFDATA':
             df = self.get_dados_ifdata(
@@ -439,31 +460,33 @@ class AnalisadorBancario:
                 datas=datas_yyyymm
             )
             if not df.empty:
-                # Usa o nome da conta original para a coluna do pivot
-                coluna_nome = conta if isinstance(conta, str) else str(conta)
-                df_pivot = (
-                    df
-                    .pivot_table(index='DATA', values='VALOR_CONTA_IFD_VAL', aggfunc='first')
-                    .rename(columns={'VALOR_CONTA_IFD_VAL': coluna_nome})
-                )
+                df_pivot = df.pivot_table(index='DATA', values='VALOR_CONTA_IFD_VAL', aggfunc='first').rename(columns={'VALOR_CONTA_IFD_VAL': coluna_nome})
 
         if df_pivot.empty:
-            # Se não encontrou dados, retorna um DF vazio com o índice correto
+            if formato_saida.lower() == 'long':
+                return pd.DataFrame(columns=['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'])
             return pd.DataFrame(index=datas_periodo)
 
-        # Converte o índice (YYYYMM → Timestamp) e garante que seja MonthEnd
         df_pivot.index = pd.to_datetime(df_pivot.index, format='%Y%m') + MonthEnd(0)
-
-        # Reindexa para garantir que todos os meses do período estejam presentes
         df_pivot = df_pivot.reindex(datas_periodo)
         
-        # O nome da coluna pode variar, então pegamos o primeiro (e único) nome
         col_name = df_pivot.columns[0]
-
         if fillna is not None:
             if pd.isna(fillna) or (isinstance(fillna, str) and fillna.lower() == 'nan'):
                 df_pivot[col_name] = df_pivot[col_name].replace(0, np.nan)
             elif fillna == 0:
                 df_pivot[col_name] = df_pivot[col_name].fillna(0)
 
-        return df_pivot
+        # Lógica de formatação da saída
+        if formato_saida.lower() == 'long':
+            df_long = df_pivot.reset_index().rename(columns={'index': 'DATA', col_name: 'Valor'})
+            df_long['Nome_Entidade'] = nome_entidade
+            df_long['CNPJ_8'] = cnpj_8
+            df_long['Conta'] = coluna_nome
+            
+            # Reordena para o formato long padrão e remove valores nulos
+            df_long = df_long[['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor']]
+            df_long.dropna(subset=['Valor'], inplace=True)
+            return df_long.reset_index(drop=True)
+        else: # Retorna no formato 'wide' (padrão)
+            return df_pivot

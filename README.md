@@ -102,7 +102,7 @@ Um dos principais recursos da classe é a **consistência da saída**. Todos os 
 
 -   `comparar_indicadores(...)`: Cria uma tabela-resumo "pivotada" para comparar múltiplos indicadores entre várias instituições lado a lado. Ideal para análise de pares.
 
--   `get_serie_temporal_indicador(...)`: Busca a evolução de um único indicador ao longo do tempo, retornando uma série temporal pronta para plotagem.
+-   `get_serie_temporal_indicador(...)`: Busca a evolução de um indicador ao longo do tempo. Retorna uma série temporal que pode ser formatada como `'wide'` (padrão, para plotagem) ou `'long'` (ideal para ferramentas de BI e concatenação de dados).
 
 ### Exemplos de Uso e Técnicas Avançadas
 
@@ -163,6 +163,34 @@ tabela_estatistica = analisador.comparar_indicadores(
     ...,
     fillna=np.nan
 )
+```
+
+#### d. Escolhendo o Formato da Série Temporal (Long vs. Wide)
+
+O método `get_serie_temporal_indicador` possui o parâmetro `formato_saida` para maior flexibilidade.
+
+-   **`formato_saida='wide'` (Padrão):** Retorna um DataFrame com as datas como índice e o valor do indicador como coluna. Ideal para plotar um gráfico rapidamente.
+-   **`formato_saida='long'`:** Retorna um DataFrame com as colunas `DATA`, `Nome_Entidade`, `CNPJ_8`, `Conta` e `Valor`. Este formato é perfeito para ser usado em ferramentas de Business Intelligence (como Power BI e Tableau) ou para empilhar várias séries temporais em uma única tabela.
+
+```python
+# Exemplo: Buscar o Patrimônio Líquido do Itaú em formato 'long'
+serie_longa = analisador.get_serie_temporal_indicador(
+    identificador='ITAÚ UNIBANCO',
+    conta='Patrimônio Líquido',
+    data_inicio=202301,
+    data_fim=202312,
+    fonte='IFDATA',
+    formato_saida='long'
+)
+
+display(serie_longa.head())
+
+# Saída esperada (estrutura):
+#          DATA   Nome_Entidade    CNPJ_8             Conta         Valor
+# 0  2023-03-31  ITAÚ UNIBANCO...  60701190  Patrimônio Líquido  1.67...e+08
+# 1  2023-06-30  ITAÚ UNIBANCO...  60701190  Patrimônio Líquido  1.71...e+08
+# 2  2023-09-30  ITAÚ UNIBANCO...  60701190  Patrimônio Líquido  1.74...e+08
+# 3  2023-12-31  ITAÚ UNIBANCO...  60701190  Patrimônio Líquido  1.77...e+08
 ```
 
 ## 5. Manutenção e Depuração
