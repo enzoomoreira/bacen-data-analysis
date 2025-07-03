@@ -12,16 +12,26 @@ from pandas.tseries.offsets import MonthEnd
 # ==============================================================================
 
 def standardize_cnpj_base8(cnpj_input: Union[str, pd.Series]) -> Union[str, pd.Series]:
-    """Padroniza um CNPJ ou código para uma string de 8 dígitos."""
+    """
+    Padroniza um CNPJ ou código para uma string de 8 dígitos, lidando com
+    diferentes formatos de entrada.
+    """
     def _process_single_cnpj(cnpj_element_val):
-        if pd.isna(cnpj_element_val): return None
-        cnpj_str_val = str(cnpj_element_val).split('.')[0]
-        cleaned = re.sub(r'[^0-9]', '', cnpj_str_val)
-        if not cleaned: return None
-        return cleaned.ljust(8, '0')[:8]
+        if pd.isna(cnpj_element_val):
+            return None
+        
+        # 1. Converte para string e remove caracteres não numéricos.
+        cleaned = re.sub(r'[^0-9]', '', str(cnpj_element_val).strip())
+        
+        if not cleaned:
+            return None
+            
+        # 2. Usa zfill() para preencher com zeros à ESQUERDA e pega os 8 primeiros dígitos.
+        return cleaned.zfill(8)[:8]
 
     if isinstance(cnpj_input, pd.Series):
         return cnpj_input.apply(_process_single_cnpj)
+    
     return _process_single_cnpj(cnpj_input)
 
 # ==============================================================================
