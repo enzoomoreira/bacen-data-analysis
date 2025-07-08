@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Union, Optional
 from pandas.tseries.offsets import MonthEnd
+from functools import lru_cache
 
 # ==============================================================================
 # FUNÇÕES DE UTILIDADE GLOBAL
@@ -19,14 +20,9 @@ def standardize_cnpj_base8(cnpj_input: Union[str, pd.Series]) -> Union[str, pd.S
     def _process_single_cnpj(cnpj_element_val):
         if pd.isna(cnpj_element_val):
             return None
-        
-        # 1. Converte para string e remove caracteres não numéricos.
         cleaned = re.sub(r'[^0-9]', '', str(cnpj_element_val).strip())
-        
         if not cleaned:
             return None
-            
-        # 2. Usa zfill() para preencher com zeros à ESQUERDA e pega os 8 primeiros dígitos.
         return cleaned.zfill(8)[:8]
 
     if isinstance(cnpj_input, pd.Series):
@@ -45,9 +41,6 @@ class AnalisadorBancario:
     """
     
     def __init__(self, diretorio_output: str):
-        """
-        Inicializa o analisador carregando todos os DataFrames necessários.
-        """
         print("Iniciando o Analisador Bancário...")
         base_path = Path(diretorio_output)
         
@@ -77,7 +70,6 @@ class AnalisadorBancario:
             raise
 
     def _criar_mapa_identificadores(self):
-        """(Método interno) Cria um DataFrame para traduzir nomes de bancos para CNPJ_8."""
         mapa1 = self.df_ifd_cad[['NOME_INSTITUICAO_IFD_CAD', 'CNPJ_8']].dropna().drop_duplicates()
         mapa2 = self.df_cosif_prud[['NOME_INSTITUICAO_COSIF', 'CNPJ_8']].dropna().drop_duplicates()
         mapa3 = self.df_cosif_ind[['NOME_INSTITUICAO_COSIF', 'CNPJ_8']].dropna().drop_duplicates()
@@ -87,47 +79,47 @@ class AnalisadorBancario:
         self._mapa_nomes_df = pd.concat([mapa1, mapa2, mapa3]).drop_duplicates(subset='nome', keep='first').reset_index(drop=True)
         self._mapa_nomes_df['nome_upper'] = self._mapa_nomes_df['nome'].str.strip().str.upper()
 
+    ### APLICAÇÃO DO CACHING ###
+    @lru_cache(maxsize=256) # Armazena os resultados das últimas 256 buscas
     def _find_cnpj(self, identificador: str) -> Optional[str]:
         """(Método interno) Encontra o CNPJ_8 a partir de um nome ou de um CNPJ."""
         identificador_upper = identificador.strip().upper()
         if re.fullmatch(r'\d{8}', identificador): return identificador
+        
         match_exato = self._mapa_nomes_df[self._mapa_nomes_df['nome_upper'] == identificador_upper]
         if not match_exato.empty: return match_exato['cnpj_8'].iloc[0]
+        
         match_contains = self._mapa_nomes_df[self._mapa_nomes_df['nome_upper'].str.contains(identificador_upper)]
         if not match_contains.empty:
-            if len(match_contains) == 1: return match_contains['cnpj_8'].iloc[0]
-            # print(f"AVISO: Múltiplos nomes para '{identificador}'. Usando: '{match_contains['nome'].iloc[0]}'")
+            # Se encontrou mais de um, avisa o usuário sobre a ambiguidade
+            if len(match_contains) > 1:
+                nomes_encontrados = match_contains['nome'].tolist()
+                print(f"AVISO: O identificador '{identificador}' é ambíguo. Correspondências encontradas: {nomes_encontrados[:3]}")
+                print(f"       -> Usando a primeira correspondência: '{nomes_encontrados[0]}'. Para precisão, use um nome mais completo ou o CNPJ de 8 dígitos.")
             return match_contains['cnpj_8'].iloc[0]
+            
         print(f"AVISO: Identificador '{identificador}' não encontrado no mapa.")
         return None
 
+    ### APLICAÇÃO DO CACHING DE PERFORMANCE ###
+    @lru_cache(maxsize=256) # Armazena os resultados das últimas 256 buscas
     def _get_entity_identifiers(self, cnpj_8: str) -> Dict[str, Optional[str]]:
-        """
-        (Método interno) 'Tradutor universal' de identificadores.
-        Busca CNPJ de reporte e nome canônico da entidade.
-        """
-        # Dicionário de retorno agora inclui 'nome_entidade'
         info = {
             'cnpj_interesse': cnpj_8,
             'cnpj_reporte_cosif': cnpj_8,
             'cod_congl_prud': None,
-            'nome_entidade': None  # Inicializa como None
+            'nome_entidade': None
         }
         if not cnpj_8:
             return info
 
-        # Busca o registro mais recente da entidade no cadastro
         entry_cad = self.df_ifd_cad[self.df_ifd_cad['CNPJ_8'] == cnpj_8].sort_values('DATA', ascending=False)
         if entry_cad.empty:
-            # Se não achar no cadastro, não conseguimos o nome canônico
             return info
 
         linha_interesse = entry_cad.iloc[0]
-
-        # --- Captura e adiciona o nome canônico ---
         info['nome_entidade'] = linha_interesse.get('NOME_INSTITUICAO_IFD_CAD')
 
-        # Lógica para encontrar o CNPJ de reporte do conglomerado
         cod_congl = linha_interesse.get('COD_CONGL_PRUD_IFD_CAD')
         if pd.notna(cod_congl):
             info['cod_congl_prud'] = cod_congl
@@ -169,7 +161,6 @@ class AnalisadorBancario:
         cnpj_8 = self._find_cnpj(identificador)
         if not cnpj_8:
             # Retornar DF vazio com colunas padronizadas
-            # As novas colunas são Nome_Entidade e CNPJ_8, não mais BANCO_CONSULTADO
             return pd.DataFrame(columns=['Nome_Entidade', 'CNPJ_8'] + [c for c in df_base.columns if c not in ['NOME_INSTITUICAO_COSIF', 'CNPJ_8']])
 
         info_ent = self._get_entity_identifiers(cnpj_8)
@@ -217,9 +208,24 @@ class AnalisadorBancario:
         self,
         identificador: str,
         contas: Union[List[str], List[int], List[Union[str, int]]],
-        datas: Union[int, List[int]]
+        datas: Union[int, List[int]],
+        escopo: str = 'cascata'
     ) -> pd.DataFrame:
-        """Busca dados IFDATA, consolidando resultados de todas as chaves de identificação relevantes."""
+        """
+        Busca dados IFDATA com controle de escopo.
+
+        Args:
+            identificador (str): Nome ou CNPJ da instituição.
+            contas (list): Lista de nomes ou códigos de contas IFDATA.
+            datas (list): Lista de datas no formato YYYYMM.
+            escopo (str, optional): Define o escopo da busca. Pode ser:
+                - 'cascata': (Padrão) Busca em todos os escopos (individual, prudencial, financeiro)
+                            e retorna os resultados consolidados.
+                - 'individual': Busca usando apenas o CNPJ_8 da instituição.
+                - 'prudencial': Busca usando o código do conglomerado prudencial.
+                - 'financeiro': Busca usando o código do conglomerado financeiro.
+                Defaults to 'cascata'.
+        """
         # --- Passo 1: Encontrar identificadores canônicos ---
         cnpj_8 = self._find_cnpj(identificador)
         if not cnpj_8:
@@ -230,19 +236,36 @@ class AnalisadorBancario:
 
         if not isinstance(datas, list):
             datas = [datas]
-        entry_cad = (self.df_ifd_cad[self.df_ifd_cad['CNPJ_8'] == cnpj_8]).sort_values('DATA', ascending=False)
-        cod_congl_fin_busca = entry_cad.iloc[0].get('COD_CONGL_FIN_IFD_CAD') if not entry_cad.empty else None
         
-        ids_para_buscar = [cnpj_8, info_ent.get('cod_congl_prud'), cod_congl_fin_busca]
+        entry_cad = (self.df_ifd_cad[self.df_ifd_cad['CNPJ_8'] == cnpj_8]).sort_values('DATA', ascending=False)
+        cod_congl_prud_busca = info_ent.get('cod_congl_prud')
+        cod_congl_fin_busca = entry_cad.iloc[0].get('COD_CONGL_FIN_IFD_CAD') if not entry_cad.empty else None
+
+        # --- LÓGICA DE SELEÇÃO DE IDS DE BUSCA ---
+        ids_para_buscar = []
+        if escopo == 'individual':
+            ids_para_buscar = [cnpj_8]
+        elif escopo == 'prudencial':
+            ids_para_buscar = [cod_congl_prud_busca]
+        elif escopo == 'financeiro':
+            ids_para_buscar = [cod_congl_fin_busca]
+        elif escopo == 'cascata':
+            ids_para_buscar = [cnpj_8, cod_congl_prud_busca, cod_congl_fin_busca]
+        else:
+            raise ValueError(f"Escopo '{escopo}' inválido. Use 'cascata', 'individual', 'prudencial', ou 'financeiro'.")
+
+        # Remove valores nulos (None, NaT, etc.) e duplicados da lista de IDs
         ids_para_buscar = [str(i) for i in ids_para_buscar if pd.notna(i)]
         ids_para_buscar = list(dict.fromkeys(ids_para_buscar))
 
-        # 1. Criar uma lista para armazenar os DataFrames encontrados em cada iteração
-        resultados_coletados = []
+        if not ids_para_buscar:
+            return pd.DataFrame(columns=['Nome_Entidade', 'CNPJ_8', 'ID_BUSCA_USADO'] + list(self.df_ifd_val.columns))
 
         # --- Passo 2: Iterar e COLETAR todos os resultados ---
+        resultados_coletados = []
         for id_busca in ids_para_buscar:
             filtro_base = (self.df_ifd_val['COD_INST_IFD_VAL'] == id_busca) & (self.df_ifd_val['DATA'].isin(datas))
+            
             nomes_busca = [c for c in contas if isinstance(c, str)]
             codigos_busca = [c for c in contas if isinstance(c, int)]
             filtro_nomes = self.df_ifd_val['NOME_CONTA_IFD_VAL'].isin(nomes_busca)
@@ -251,27 +274,19 @@ class AnalisadorBancario:
             
             df_resultado_parcial = self.df_ifd_val[filtro_base & filtro_conta].copy()
 
-            # 2. Se um resultado parcial for encontrado, adicione-o à lista de coleta
             if not df_resultado_parcial.empty:
                 df_resultado_parcial['ID_BUSCA_USADO'] = id_busca
                 resultados_coletados.append(df_resultado_parcial)
 
-        # 3. Após o loop, verificar se algum dado foi coletado
         if not resultados_coletados:
-            # Retorna DF vazio com a estrutura correta se nada for encontrado
             return pd.DataFrame(columns=['Nome_Entidade', 'CNPJ_8', 'ID_BUSCA_USADO'] + list(self.df_ifd_val.columns))
 
-        # 4. Consolidar todos os resultados em um único DataFrame
         df_final = pd.concat(resultados_coletados, ignore_index=True)
-        
-        # Remove duplicatas que podem surgir se a mesma info exata estiver em duas fontes
         df_final.drop_duplicates(inplace=True)
 
-        # 5. Adicionar colunas padronizadas e reordenar (agora no DataFrame final)
         df_final['Nome_Entidade'] = nome_entidade_canonico
         df_final['CNPJ_8'] = cnpj_8
         
-        # Define a ordem final das colunas
         cols_base = list(df_final.columns)
         cols_prioritarias = ['Nome_Entidade', 'CNPJ_8', 'ID_BUSCA_USADO']
         cols_restantes = [c for c in cols_base if c not in cols_prioritarias]
@@ -294,7 +309,6 @@ class AnalisadorBancario:
             if not cnpj_8:
                 continue
 
-            # --- Usa a fonte única da verdade para obter o nome ---
             info_ent = self._get_entity_identifiers(cnpj_8)
             nome_entidade = info_ent.get('nome_entidade') or ident # Fallback para o input
 
@@ -346,14 +360,11 @@ class AnalisadorBancario:
                 lista_resultados.append(dados_banco)
                 continue
 
-            # --- ALTERAÇÃO PRINCIPAL: Usa a fonte única da verdade ---
-            # Remove a lógica antiga com `_mapa_nomes_df`
             info_ent = self._get_entity_identifiers(cnpj_8)
             nome_entidade = info_ent.get('nome_entidade') or ident # Fallback para o input
             
             dados_banco = {'Nome_Entidade': nome_entidade, 'CNPJ_8': cnpj_8}
 
-            # O restante da lógica para buscar indicadores permanece o mesmo...
             for nome_coluna, info_ind in indicadores.items():
                 valor = None
                 tipo = info_ind.get('tipo', '').upper()
@@ -405,19 +416,20 @@ class AnalisadorBancario:
         self,
         identificador: str,
         conta: Union[str, int],
-        data_inicio: int,
-        data_fim: int,
         fonte: str = 'COSIF',
         documento_cosif: Optional[int] = 4060,
-        fillna: Optional[Union[int, float, str]] = None
+        escopo_ifdata: str = 'cascata',
+        fill_value: Optional[Union[int, float]] = None,
+        replace_zeros_with_nan: bool = False,
+        drop_na: bool = True,
+        data_inicio: Optional[int] = None,
+        data_fim: Optional[int] = None,
+        datas: Optional[List[int]] = None
     ) -> pd.DataFrame:
         """
-        Busca a série temporal de um indicador, retornando sempre em formato 'long'.
-
-        Esta função é robusta a dados duplicados na fonte e prioriza valores
-        numéricos sobre valores nulos (NaN) ao agregar dados de múltiplas fontes.
+        Busca a série temporal de um indicador, com controle de escopo para IFDATA.
         """
-        # --- Passo 1: Lógica de Identificação e Datas ---
+        # --- Passos 1 e 2 ---
         cnpj_8 = self._find_cnpj(identificador)
         if not cnpj_8:
             print(f"AVISO: Identificador '{identificador}' não encontrado.")
@@ -426,65 +438,61 @@ class AnalisadorBancario:
         info_ent = self._get_entity_identifiers(cnpj_8)
         nome_entidade = info_ent.get('nome_entidade', identificador)
 
-        try:
+        datas_yyyymm = []
+        if datas:
+            datas_yyyymm = datas
+        elif data_inicio and data_fim:
             start_date_str = f'{data_inicio // 100}-{data_inicio % 100:02d}-01'
             end_date_ts = pd.to_datetime(f'{data_fim}', format='%Y%m') + MonthEnd(0)
-            datas_periodo = pd.date_range(start=start_date_str, end=end_date_ts, freq='ME')
-            datas_yyyymm  = datas_periodo.strftime('%Y%m').astype(int).tolist()
-        except ValueError:
-            print("Erro: Formato de data inválido. Use YYYYMM.")
-            return pd.DataFrame()
+            datas_yyyymm = pd.date_range(start=start_date_str, end=end_date_ts, freq='ME').strftime('%Y%m').astype(int).tolist()
+        else:
+            raise ValueError("Deve ser fornecido 'datas' ou ambos 'data_inicio' e 'data_fim'.")
+        
+        if not datas_yyyymm:
+            return pd.DataFrame(columns=['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'])
 
-        # --- Passo 2: Busca dos Dados Brutos ---
         df_bruto = pd.DataFrame()
         valor_col = ''
         if fonte.upper() == 'COSIF':
             df_bruto = self.get_dados_cosif(identificador, contas=[conta], datas=datas_yyyymm, documentos=[documento_cosif] if documento_cosif else None)
             valor_col = 'VALOR_CONTA_COSIF'
         elif fonte.upper() == 'IFDATA':
-            df_bruto = self.get_dados_ifdata(identificador, contas=[conta], datas=datas_yyyymm)
+            df_bruto = self.get_dados_ifdata(identificador, contas=[conta], datas=datas_yyyymm, escopo=escopo_ifdata)
             valor_col = 'VALOR_CONTA_IFD_VAL'
         
         if df_bruto.empty:
             return pd.DataFrame(columns=['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'])
 
-        # Passo 3.1: Criar uma coluna temporária para a ordenação.
-        # Esta coluna será True (1) para NaNs e False (0) para números.
+        # --- Passo 3: Limpeza de Duplicatas por Data ---
+        # 1. Criar a coluna temporária para a ordenação
         coluna_temp_isna = '_valor_is_na'
         df_bruto[coluna_temp_isna] = df_bruto[valor_col].isna()
         
-        # Passo 3.2: Ordenar usando os NOMES das colunas.
-        # Isso garante que as linhas com números (False/0) venham ANTES das com NaN (True/1).
+        # 2. Ordenar usando os NOMES das colunas
         df_bruto.sort_values(by=['DATA', coluna_temp_isna], inplace=True)
         
-        # Passo 3.3: Remover a coluna temporária.
+        # 3. Remover a coluna temporária
         df_bruto.drop(columns=[coluna_temp_isna], inplace=True)
+        
+        df_pivot = df_bruto.pivot_table(index='DATA', values=valor_col, aggfunc='first', dropna=False)
 
-        # Passo 3.4: Pivotar para Limpar e Agregar Duplicatas.
-        # `aggfunc='first'` agora pegará de forma confiável o valor numérico.
-        df_pivot = df_bruto.pivot_table(
-            index='DATA', 
-            values=valor_col, 
-            aggfunc='first'
-        )
-
-        # --- Passo 4: Reindexar e Formatar para o Padrão 'Long' ---
+        # --- Passos 4 e 5 ---
+        datas_periodo_dt = pd.to_datetime(datas_yyyymm, format='%Y%m') + MonthEnd(0)
         df_pivot.index = pd.to_datetime(df_pivot.index, format='%Y%m') + MonthEnd(0)
-        df_pivot = df_pivot.reindex(datas_periodo)
+        df_pivot = df_pivot.reindex(datas_periodo_dt)
 
         df_long = df_pivot.reset_index().rename(columns={'index': 'DATA', valor_col: 'Valor'})
-
         df_long['Nome_Entidade'] = nome_entidade
         df_long['CNPJ_8'] = cnpj_8
-        df_long['Conta'] = conta if isinstance(conta, str) else str(conta)
+        df_long['Conta'] = str(conta)
 
-        # --- Passo 5: Finalizar e Limpar (fillna e dropna) ---
-        if fillna is not None:
-            if pd.isna(fillna) or (isinstance(fillna, str) and fillna.lower() == 'nan'):
-                df_long['Valor'] = df_long['Valor'].replace(0, np.nan)
-            elif fillna == 0:
-                df_long['Valor'] = df_long['Valor'].fillna(0)
+        if replace_zeros_with_nan:
+            df_long['Valor'] = df_long['Valor'].replace(0, np.nan)
 
-        df_long.dropna(subset=['Valor'], inplace=True)
+        if fill_value is not None:
+            df_long['Valor'] = df_long['Valor'].fillna(fill_value)
+
+        if drop_na:
+            df_long.dropna(subset=['Valor'], inplace=True)
         
         return df_long[['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor']].reset_index(drop=True)
