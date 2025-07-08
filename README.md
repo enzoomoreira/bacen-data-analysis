@@ -157,7 +157,8 @@ dados_mistos = analisador.get_dados_cosif(
     contas=contas_mistas,
     datas=202403,
     documentos=4060
-)```
+)
+```
 
 ## 5. Manutenção e Depuração
 
