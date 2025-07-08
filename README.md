@@ -2,14 +2,14 @@
 
 ## 1. Visão Geral
 
-Este projeto é um pipeline completo de dados e uma ferramenta de análise para os relatórios financeiros de instituições brasileiras, disponibilizados pelo Banco Central do Brasil (BCB). Ele automatiza o processo de baixar, limpar, padronizar e conectar dados complexos de múltiplas fontes (COSIF e IFDATA), tornando-os acessíveis para análise através de uma interface Python simples e poderosa.
+Este projeto é um pipeline de dados e uma ferramenta de análise para os relatórios financeiros de instituições brasileiras, disponibilizados pelo Banco Central do Brasil (BCB). Ele automatiza o processo de baixar, limpar, padronizar e conectar dados complexos de múltiplas fontes (COSIF e IF.DATA), tornando-os acessíveis para análise através de uma interface Python simples e poderosa.
 
 O objetivo principal é permitir a extração de insights valiosos dos dados do BCB sem a necessidade de lidar com a complexidade do tratamento e da unificação dos dados brutos.
 
 ### Fluxo do Projeto
 
 1.  **ETL (Extração, Transformação e Carga):** O notebook `Code/DataDownload.ipynb` baixa os relatórios, padroniza as colunas, resolve inconsistências e salva os dados limpos em formato Parquet, otimizado para performance.
-2.  **Análise de Dados:** Notebooks de exemplo, `Analysis/DataAnalysis.ipynb` e `Analysis/DataAnalysis_example.ipynb`, demonstram como utilizar a classe `AnalisadorBancario` (do arquivo `Code/DataUtils.py`), que é o coração da ferramenta, para realizar consultas de forma intuitiva.
+2.  **Análise de Dados:** Notebooks de exemplo, como o `Analysis/DataAnalysis_example.ipynb`, demonstram como utilizar a classe `AnalisadorBancario` (do arquivo `Code/DataUtils.py`), que é o coração da ferramenta, para realizar consultas de forma intuitiva.
 
 ## 2. Estrutura de Arquivos
 
@@ -29,8 +29,7 @@ Ao clonar o repositório, você terá a seguinte estrutura:
 ├── .gitignore                    # Pastas e arquivos que o Git ignora.
 ├── README.md                     # Este arquivo.
 └── requirements.txt              # Libraries necessárias.
-```
-**Nota:** Os diretórios `Input/` e `Output/` serão criados automaticamente quando você executar o notebook `DataDownload.ipynb`.
+```**Nota:** Os diretórios `Input/` e `Output/` serão criados automaticamente quando você executar o notebook `DataDownload.ipynb`.
 
 ## 3. Como Começar
 
@@ -53,7 +52,7 @@ Ao clonar o repositório, você terá a seguinte estrutura:
     -   Ao final, o diretório `Output/` conterá os arquivos `.parquet` processados e os **dicionários de referência em Excel**, que são cruciais para a análise.
 
 4.  **Explore e Analise:**
-    -   Abra o notebook `Analysis/DataAnalysis.ipynb` ou `Analysis/DataAnalysis_example.ipynb` . Eles servem como tutoriais práticos.
+    -   Abra o notebook `Analysis/DataAnalysis_example.ipynb`. Ele serve como um tutorial prático e demonstração dos principais recursos.
     -   Consulte os arquivos gerados em `Output/`, especialmente `dicionario_entidades.xlsx`, para encontrar os nomes e identificadores corretos dos bancos.
     -   Crie seu próprio notebook de análise e comece a usar a classe `AnalisadorBancario`!
 
@@ -85,90 +84,85 @@ analisador = AnalisadorBancario(diretorio_output=str(output_dir))
 
 Um dos principais recursos da classe é a **consistência da saída**. Todos os métodos que retornam dados sobre uma ou mais entidades sempre incluirão as colunas `Nome_Entidade` e `CNPJ_8` no início do DataFrame. Isso garante que você sempre saiba a qual instituição os dados se referem, usando seu nome oficial e CNPJ padronizado.
 
-```
-# Exemplo da estrutura de saída padrão
-  Nome_Entidade            CNPJ_8    ... (outras colunas de dados)
-0 BANCO BRADESCO S.A.      60746948  ...
-1 NU FINANCEIRA S.A. ...   30680829  ...
-```
-
 ### Métodos Principais de Consulta
 
--   `get_dados_cosif(...)`: Busca dados contábeis detalhados (Balanço/DRE) da fonte COSIF. Retorna a tabela de dados brutos da fonte, enriquecida com `Nome_Entidade` e `CNPJ_8`.
-
--   `get_dados_ifdata(...)`: Busca indicadores regulatórios (Basileia, etc.) da fonte IF.DATA. Além de `Nome_Entidade` e `CNPJ_8`, este método também retorna a coluna `ID_BUSCA_USADO`, útil para depuração (veja a seção de Manutenção).
-
+-   `get_dados_cosif(...)`: Busca dados contábeis detalhados (Balanço/DRE) da fonte COSIF.
+-   `get_dados_ifdata(...)`: Busca indicadores regulatórios (Basileia, etc.) da fonte IF.DATA.
 -   `get_atributos_cadastro(...)`: Busca informações cadastrais de uma entidade (Segmento, Situação, etc.).
-
--   `comparar_indicadores(...)`: Cria uma tabela-resumo "pivotada" para comparar múltiplos indicadores entre várias instituições lado a lado. Ideal para análise de pares.
-
+-   `comparar_indicadores(...)`: Cria uma tabela-resumo "pivotada" para comparar múltiplos indicadores entre várias instituições.
 -   `get_serie_temporal_indicador(...)`: Busca a evolução de um único indicador ao longo do tempo, retornando uma série temporal pronta para plotagem.
 
 ### Exemplos de Uso e Técnicas Avançadas
 
-#### a. Buscando por Nome ou Código de Conta
+#### a. Controle de Escopo da Busca (Individual vs. Conglomerado)
 
-Todos os métodos que aceitam o parâmetro `contas` são flexíveis. Você pode passar uma lista de nomes (strings), códigos (inteiros), ou uma **lista mista**.
+A classe oferece controle granular sobre qual nível de dados você deseja analisar.
+
+-   **Para dados COSIF**, use o parâmetro `documentos` (ex: `4010` para individual, `4060` para prudencial). A classe infere o tipo automaticamente.
+-   **Para dados IF.DATA**, use o novo parâmetro `escopo_ifdata`, que aceita `'individual'`, `'prudencial'`, `'financeiro'` ou `'cascata'` (padrão).
+
+```python
+# Exemplo 1: Buscando o Ativo Total do CONGLOMERADO PRUDENCIAL do Itaú
+dados_prudenciais = analisador.get_dados_ifdata(
+    identificador='60701190',
+    contas=['Ativo Total'],
+    datas=202403,
+    escopo='prudencial' # A chave é o parâmetro 'escopo'
+)
+
+# Exemplo 2: Buscando o mesmo dado, mas APENAS da instituição individual
+dados_individuais = analisador.get_dados_ifdata(
+    identificador='60701190',
+    contas=['Ativo Total'],
+    datas=202403,
+    escopo='individual'
+)
+```
+
+#### b. Controle Explícito de Dados Ausentes e Zeros
+
+O método `get_serie_temporal_indicador` possui parâmetros claros para lidar com dados ausentes e zeros, oferecendo total controle sobre o resultado.
+
+-   `drop_na=True` (Padrão): Remove as linhas onde o valor do indicador é `NaN` (ausente).
+-   `drop_na=False`: Mantém as linhas com `NaN`, útil para visualizar lacunas em séries temporais.
+-   `fill_value=...`: Preenche os valores `NaN` com um número específico (ex: `fill_value=0`).
+-   `replace_zeros_with_nan=True`: Converte todos os valores `0` para `NaN`, tratando-os como dados ausentes.
+
+```python
+# Exemplo: Gerar uma série temporal completa, preenchendo lacunas com 0
+serie_completa = analisador.get_serie_temporal_indicador(
+    identificador='Banco Inter',
+    conta='Lucro Líquido',
+    fonte='IFDATA',
+    data_inicio=202301,
+    data_fim=202312,
+    drop_na=False,     # Não remove as linhas com NaN
+    fill_value=0       # Preenche os NaNs com 0
+)
+```
+
+#### c. Flexibilidade na Consulta de Contas
+
+Os métodos que aceitam o parâmetro `contas` são flexíveis. Você pode passar uma lista de nomes (strings), códigos (inteiros), ou uma **lista mista**.
 
 ```python
 # Exemplo de consulta mista para o Bradesco
 contas_mistas = [
-    'TOTAL GERAL DO ATIVO', # Busca por nome
-    60000002              # Busca pelo código do 'PATRIMÔNIO LÍQUIDO'
+    'ATIVO TOTAL', # Busca por nome
+    60000002       # Busca pelo código do 'PATRIMÔNIO LÍQUIDO'
 ]
 
 dados_mistos = analisador.get_dados_cosif(
     identificador='BANCO BRADESCO S.A.',
     contas=contas_mistas,
-    datas=202403
-)
-
-# O resultado sempre mostrará o nome da conta, independentemente de como foi buscada.
-display(dados_mistos[['Nome_Entidade', 'CONTA_COSIF', 'NOME_CONTA_COSIF', 'VALOR_CONTA_COSIF']])
-```
-
-#### b. Buscando Dados Individuais vs. Prudenciais
-
-Para análises COSIF, você pode especificar se deseja os dados da entidade específica ou do conglomerado consolidado, usando o parâmetro `tipo`.
-
-```python
-# Busca o Ativo Total do CONGLOMERADO Nubank (comportamento padrão)
-dados_prudenciais = analisador.get_dados_cosif(
-    identificador='NU FINANCEIRA S.A.',
-    contas=['TOTAL GERAL DO ATIVO'],
     datas=202403,
-    tipo='prudencial' # ou omitindo o parâmetro 'tipo'
-)
-
-# Busca o Ativo Total APENAS da entidade Nu Financeira S.A.
-dados_individuais = analisador.get_dados_cosif(
-    identificador='NU FINANCEIRA S.A.',
-    contas=['TOTAL GERAL DO ATIVO'],
-    datas=202403,
-    tipo='individual' # A chave é o parâmetro 'tipo'
-)
-```
-
-#### c. Tratando Zeros e Dados Ausentes (`fillna`)
-
-Os métodos `comparar_indicadores` e `get_serie_temporal_indicador` possuem um parâmetro `fillna` para controlar a apresentação de dados ausentes (`NaN`) e zeros (`0`).
-
--   **`fillna=None` (Padrão):** Retorna os dados como estão. `0` é `0`, ausente é `NaN`.
--   **`fillna=0`:** Converte todos os `NaN` (ausentes) para `0`. Ideal para relatórios visuais.
--   **`fillna=np.nan`:** Converte todos os `0` para `NaN`. Útil quando `0` pode significar "não aplicável".
-
-```python
-# Exemplo: Tratar zeros como ausentes na tabela comparativa
-tabela_estatistica = analisador.comparar_indicadores(
-    ...,
-    fillna=np.nan
-)
-```
+    documentos=4060
+)```
 
 ## 5. Manutenção e Depuração
 
 -   **Atualizando os Dados:** Para buscar novos meses, simplesmente execute o notebook `Code/DataDownload.ipynb` novamente.
 -   **Consultas sem Resultado?**
     1.  **Consulte os Dicionários:** Use os arquivos `.xlsx` no diretório `Output/`, especialmente `dicionario_entidades.xlsx` e os `dicionario_contas_*.xlsx`, para encontrar os nomes e códigos corretos.
-    2.  **Verifique a Data/Documento:** Certifique-se de que os dados para a combinação de data e documento que você pediu existem.
-    3.  **Entenda a Lógica de Busca (IF.DATA):** O método `get_dados_ifdata` possui uma busca em múltiplos estágios. A coluna `ID_BUSCA_USADO` na saída informa qual chave encontrou o dado (o CNPJ da própria entidade, o código do conglomerado prudencial ou o código do conglomerado financeiro). Isso é uma ferramenta poderosa para entender a origem do dado. Se um valor não aparece, ele não existe em nenhuma dessas chaves para a data solicitada.
+    2.  **Verifique o Escopo/Documento:** Certifique-se de que os dados para a combinação de data, escopo e documento que você pediu existem. Nem todas as instituições reportam todos os dados em todos os níveis.
+    3.  **Entenda a Origem do Dado (IF.DATA):** O método `get_dados_ifdata` retorna a coluna `ID_BUSCA_USADO`. Ela informa qual chave encontrou o dado (o CNPJ da própria entidade, o código do conglomerado prudencial ou o código do conglomerado financeiro). Isso é uma ferramenta poderosa para entender a origem do dado. Se um valor não aparece, ele não existe em nenhuma das chaves aplicáveis para a data solicitada.
