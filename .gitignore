@@ -1,13 +1,16 @@
 # Python
 .venv
 __pycache__
+*egg-info
 
 # Data Folders
-Input
-Output
+data
 
 # Temp Folders
 Temp
 
 # Analysis Results
 Results
+
+# Agents
+.cursor
