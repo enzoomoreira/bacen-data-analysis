@@ -217,7 +217,7 @@ class TimeSeriesProvider:
                 - conta: str | int (nome ou código da conta/indicador)
                 - fonte: 'COSIF' | 'IFDATA'
                 - datas: List[int] (datas no formato YYYYMM)
-                - documento_cosif: Optional[int] (para COSIF, default: 4060)
+                - documento_cosif: Optional[int] (para COSIF, opcional)
                 - escopo_ifdata: str (OBRIGATÓRIO para IFDATA: 'individual', 'prudencial' ou 'financeiro')
                 - nome_indicador: str (para identificação na coluna 'Conta')
             fill_value: Valor para preencher NaNs (aplicado a todos)
