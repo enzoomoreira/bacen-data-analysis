@@ -357,6 +357,8 @@ serie = analisador.get_serie_temporal_indicador(
 
 Use exceções customizadas para tratamento robusto de erros.
 
+**Nota importante**: Os métodos `comparar_indicadores()` e `get_series_temporais_lote()` são **tolerantes** a entidades não encontradas. Eles não lançam `EntityNotFoundError`, mas emitem `UserWarning` e continuam o processamento. Para esses métodos, você não precisa usar try-except para `EntityNotFoundError`.
+
 ### Exceções Disponíveis
 
 ```python

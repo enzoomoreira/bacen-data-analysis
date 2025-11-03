@@ -2,6 +2,7 @@
 Comparador de indicadores entre múltiplas entidades
 """
 
+import warnings
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional, Union
@@ -9,7 +10,7 @@ from bacen_analysis.providers.cosif import COSIFDataProvider
 from bacen_analysis.providers.ifdata import IFDATADataProvider
 from bacen_analysis.providers.cadastro import CadastroProvider
 from bacen_analysis.core.entity_resolver import EntityIdentifierResolver, ResolvedEntity
-from bacen_analysis.exceptions import InvalidScopeError, DataUnavailableError
+from bacen_analysis.exceptions import InvalidScopeError, DataUnavailableError, EntityNotFoundError
 
 
 class IndicadorComparator:
@@ -72,10 +73,31 @@ class IndicadorComparator:
         """
         
         # OTIMIZAÇÃO: Resolve todos os identificadores uma vez no início
-        resolved_entities = {
-            ident: self._entity_resolver.resolve_full(ident)
-            for ident in identificadores
-        }
+        # Captura EntityNotFoundError para permitir comparações mesmo quando alguns bancos não existem
+        resolved_entities = {}
+        entidades_nao_encontradas = []
+        for ident in identificadores:
+            try:
+                resolved_entities[ident] = self._entity_resolver.resolve_full(ident)
+            except EntityNotFoundError:
+                # Cria um ResolvedEntity vazio para identificar não encontrado
+                resolved_entities[ident] = ResolvedEntity(
+                    cnpj_interesse=None,
+                    cnpj_reporte_cosif=None,
+                    cod_congl_prud=None,
+                    nome_entidade=None,
+                    identificador_original=ident
+                )
+                entidades_nao_encontradas.append(ident)
+        
+        # Emite warning se houver entidades não encontradas
+        if entidades_nao_encontradas:
+            warnings.warn(
+                f"Entidade(s) não encontrada(s): {', '.join(repr(e) for e in entidades_nao_encontradas)}. "
+                f"Serão incluídas no resultado com valores None.",
+                category=UserWarning,
+                stacklevel=2
+            )
 
         lista_resultados = []
 

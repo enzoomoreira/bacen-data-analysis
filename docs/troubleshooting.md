@@ -145,10 +145,17 @@ except DataUnavailableError:
 
 **Causa**: Identificador (CNPJ ou nome) não encontrado nos dados cadastrais.
 
+**Nota importante**: Os métodos `comparar_indicadores()` e `get_series_temporais_lote()` são **tolerantes** a entidades não encontradas:
+- Eles não lançam `EntityNotFoundError` quando uma entidade não é encontrada
+- Em vez disso, emitem um `UserWarning` e continuam o processamento
+- No `comparar_indicadores()`, entidades não encontradas aparecem com valores `None`
+- No `get_series_temporais_lote()`, requisições para entidades não encontradas são ignoradas
+
 **Solução**:
 1. Consulte `dicionario_entidades.xlsx` para nomes corretos
 2. Use CNPJ de 8 dígitos em vez de nome
 3. Verifique se a instituição está ativa
+4. Para métodos tolerantes, verifique os warnings emitidos para identificar identificadores inválidos
 
 ```python
 # Listar todas as entidades disponíveis

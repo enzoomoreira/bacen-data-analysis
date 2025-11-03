@@ -270,6 +270,11 @@ O dicionário deve ter a seguinte estrutura:
 - Indicadores nas colunas
 - Colunas `Nome_Entidade` e `CNPJ_8` no início
 
+**Comportamento com entidades não encontradas**:
+- Se um identificador não for encontrado, o método emite um `UserWarning` e continua a comparação
+- Entidades não encontradas são incluídas no resultado com valores `None` para todos os indicadores
+- Isso permite análises comparativas mesmo quando alguns identificadores são inválidos
+
 **Exemplo completo**:
 ```python
 comparacao = analisador.comparar_indicadores(
@@ -456,6 +461,11 @@ def get_series_temporais_lote(
 - Pré-resolve todas as entidades uma vez
 - Usa recortes otimizados de DataFrames
 
+**Comportamento com entidades não encontradas**:
+- Se um identificador não for encontrado, o método emite um `UserWarning` e ignora requisições para essa entidade
+- Requisições para entidades válidas continuam sendo processadas normalmente
+- Isso permite processamento em lote mesmo quando alguns identificadores são inválidos
+
 **Exemplo completo**:
 ```python
 # Buscar Ativo Total de 5 bancos em 3 meses
@@ -589,6 +599,11 @@ A biblioteca define exceções customizadas para melhor tratamento de erros:
 ### `EntityNotFoundError`
 
 Lançada quando um identificador (CNPJ ou nome) não é encontrado nos dados cadastrais.
+
+**Nota importante**: Os métodos `comparar_indicadores()` e `get_series_temporais_lote()` são **tolerantes** a entidades não encontradas:
+- Eles não lançam `EntityNotFoundError`
+- Em vez disso, emitem `UserWarning` e continuam o processamento
+- Isso permite análises mesmo quando alguns identificadores são inválidos
 
 **Exemplo de tratamento**:
 ```python

@@ -2,6 +2,7 @@
 Provedor de séries temporais de indicadores
 """
 
+import warnings
 import pandas as pd
 import numpy as np
 from typing import List, Optional, Union, Dict, Any
@@ -253,12 +254,34 @@ class TimeSeriesProvider:
             return pd.DataFrame(columns=['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'])
 
         # OTIMIZAÇÃO CRÍTICA: Pré-resolve TODOS os identificadores únicos UMA VEZ
+        # Captura EntityNotFoundError para permitir processamento mesmo quando alguns bancos não existem
         identificadores_unicos = list(set(req['identificador'] for req in requisicoes))
         mapa_entidades = {}
+        entidades_nao_encontradas = []
 
         for identificador in identificadores_unicos:
-            resolved = self._entity_resolver.resolve_full(identificador)
-            mapa_entidades[identificador] = resolved
+            try:
+                resolved = self._entity_resolver.resolve_full(identificador)
+                mapa_entidades[identificador] = resolved
+            except EntityNotFoundError:
+                # Ignora identificador não encontrado - será tratado depois quando cnpj_interesse for None
+                mapa_entidades[identificador] = ResolvedEntity(
+                    cnpj_interesse=None,
+                    cnpj_reporte_cosif=None,
+                    cod_congl_prud=None,
+                    nome_entidade=None,
+                    identificador_original=identificador
+                )
+                entidades_nao_encontradas.append(identificador)
+        
+        # Emite warning se houver entidades não encontradas
+        if entidades_nao_encontradas:
+            warnings.warn(
+                f"Entidade(s) não encontrada(s): {', '.join(repr(e) for e in entidades_nao_encontradas)}. "
+                f"As requisições para essas entidades serão ignoradas.",
+                category=UserWarning,
+                stacklevel=2
+            )
 
         # Pré-processamento: agrupa requisitos por fonte para montar recortes otimizados
         requisicoes_expandidas: List[Dict[str, Any]] = []

@@ -5,7 +5,49 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
-**Última atualização:** 2025-11-03 01:03:55 UTC
+**Última atualização:** 2025-11-03 16:06:33 UTC
+
+## [Unreleased]
+
+### 🔄 Changed
+
+#### `IndicadorComparator`
+
+- **Melhorado:** Agora trata `EntityNotFoundError` de forma tolerante
+- **Comportamento:** Quando uma entidade não é encontrada, emite um warning e continua a comparação com entidades válidas
+- **Mudado:** Entidades não encontradas são incluídas no resultado com valores `None` em vez de interromper a comparação
+- **Benefício:** Permite análises comparativas mesmo quando alguns identificadores são inválidos
+
+```python
+# Agora funciona mesmo se alguns identificadores forem inválidos
+comparacao = analisador.comparar_indicadores(
+    identificadores=['00000000', 'INVALIDO', '11111111'],
+    indicadores=[...],
+    data=202403
+)
+# Warning: Entidade(s) não encontrada(s): 'INVALIDO'. Serão incluídas no resultado com valores None.
+# Comparação continua normalmente para '00000000' e '11111111'
+```
+
+#### `TimeSeriesProvider`
+
+- **Melhorado:** Agora trata `EntityNotFoundError` de forma tolerante em `get_series_temporais_lote()`
+- **Comportamento:** Quando uma entidade não é encontrada, emite um warning e ignora requisições para essa entidade
+- **Mudado:** Requisições para entidades não encontradas são ignoradas em vez de interromper todo o processamento
+- **Benefício:** Permite processamento em lote mesmo quando alguns identificadores são inválidos
+
+```python
+# Agora funciona mesmo se alguns identificadores forem inválidos
+series = analisador.get_series_temporais_lote([
+    {'identificador': '00000000', ...},
+    {'identificador': 'INVALIDO', ...},  # Será ignorado com warning
+    {'identificador': '11111111', ...}
+])
+# Warning: Entidade(s) não encontrada(s): 'INVALIDO'. As requisições para essas entidades serão ignoradas.
+# Processamento continua normalmente para outras entidades
+```
+
+---
 
 ## [2.0.1] - 2025-11-03 01:03:55 UTC
 
