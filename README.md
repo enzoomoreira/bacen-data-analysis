@@ -2,13 +2,13 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.0-green)](https://github.com/enzoomoreira/bacen-data-analysis)
+[![Version](https://img.shields.io/badge/version-2.0.1-green)](https://github.com/enzoomoreira/bacen-data-analysis)
 
 ## 1. Visão Geral
 
 Este projeto é um **pacote Python moderno e instalável** que fornece um pipeline completo de dados e ferramentas de análise para os relatórios financeiros de instituições brasileiras, disponibilizados pelo Banco Central do Brasil (BCB).
 
-A versão 2.0.0 representa uma **refatoração completa** da arquitetura do projeto, transformando-o de notebooks simples para um pacote Python profissional com arquitetura modular, otimizações de performance e API simplificada, mantendo **100% de compatibilidade** com a versão anterior.
+A versão 2.0.1 representa uma **refatoração completa** da arquitetura do projeto, transformando-o de notebooks simples para um pacote Python profissional com arquitetura modular, otimizações de performance e API simplificada, mantendo **100% de compatibilidade** com a versão anterior.
 
 ### O Que Este Projeto Faz
 
@@ -46,7 +46,7 @@ O projeto automatiza o processo de:
 
 ---
 
-## 2. Novos Recursos v2.0.0
+## 2. Novos Recursos v2.0.1
 
 ### ✨ Destaques da Versão
 
@@ -56,9 +56,10 @@ O projeto automatiza o processo de:
   - Cache LRU para resoluções de identificadores
   - Novo método `get_series_temporais_lote()` para buscas em massa (significativamente mais rápido)
   - Pré-resolução de entidades em operações em lote
-- **Controle Granular de Escopo**: Parâmetro `escopo_ifdata` com opções `'individual'`, `'prudencial'`, `'financeiro'`, `'cascata'`
+- **Controle Granular de Escopo**: Parâmetro `escopo_ifdata` com opções `'individual'`, `'prudencial'`, `'financeiro'` (obrigatório na v2.0.1)
 - **API Simplificada**: Imports diretos sem necessidade de manipular `sys.path`
 - **Type Hints Completos**: Código totalmente tipado para melhor IDE support
+- **Sistema de Exceções**: Exceções customizadas para melhor tratamento de erros
 - **100% Compatível**: API pública mantida idêntica à versão 1.x
 
 ### Padrões de Design Aplicados
@@ -77,6 +78,7 @@ bacen-data-analysis/
 │
 ├── src/bacen_analysis/              # Pacote principal
 │   ├── __init__.py                  # API pública (exporta AnalisadorBancario)
+│   ├── exceptions.py                # Exceções customizadas da biblioteca
 │   │
 │   ├── core/                        # Componentes centrais
 │   │   ├── analyser.py              # AnalisadorBancario (Facade principal)
@@ -97,7 +99,8 @@ bacen-data-analysis/
 │   │
 │   └── utils/                       # Utilitários
 │       ├── cnpj.py                  # Padronização de CNPJ
-│       └── text.py                  # Limpeza de texto
+│       ├── text.py                  # Limpeza de texto
+│       └── logger.py                # Sistema de logging
 │
 ├── notebooks/                       # Notebooks organizados
 │   ├── etl/
@@ -121,7 +124,7 @@ bacen-data-analysis/
 | **analysis/** | Operações de análise: comparações e séries temporais |
 | **utils/** | Funções utilitárias de transformação e padronização |
 
-**Nota**: Os diretórios `Input/` e `Output/` são criados automaticamente ao executar o notebook de ETL pela primeira vez.
+**Nota**: Os diretórios `data/input/` e `data/output/` são criados automaticamente ao executar o notebook de ETL pela primeira vez.
 
 ---
 
@@ -178,14 +181,14 @@ pip install -e ".[all]"
 1. Abra e execute o notebook `notebooks/etl/data_download.ipynb` do início ao fim
 2. O processo pode demorar na primeira execução (downloads completos)
 3. Execuções futuras serão mais rápidas (apenas dados novos)
-4. Ao final, o diretório `Output/` conterá:
+4. Ao final, o diretório `data/output/` conterá:
    - Arquivos `.parquet` com dados processados
    - Dicionários de referência em Excel (essenciais para consultas)
 
 #### 4. Explore e Analise
 
 - Abra o notebook `notebooks/analysis/example.ipynb` - Tutorial completo com exemplos práticos
-- Consulte os arquivos em `Output/`, especialmente `dicionario_entidades.xlsx` para encontrar nomes e CNPJs corretos
+- Consulte os arquivos em `data/output/`, especialmente `dicionario_entidades.xlsx` para encontrar nomes e CNPJs corretos
 - Crie seus próprios notebooks de análise importando: `from bacen_analysis import AnalisadorBancario`
 
 ---
@@ -209,7 +212,7 @@ from pathlib import Path
 from bacen_analysis import AnalisadorBancario
 
 # Especifique o diretório onde estão os arquivos Parquet processados
-output_dir = Path('Output')  # ou caminho absoluto
+output_dir = Path('data/output')  # ou caminho absoluto
 analisador = AnalisadorBancario(diretorio_output=str(output_dir))
 ```
 
@@ -250,7 +253,8 @@ dados = analisador.get_dados_cosif(
     identificador='00000000',       # CNPJ_8 ou nome da instituição
     contas=['ATIVO TOTAL'],         # Lista de nomes ou códigos de contas
     datas=[202401, 202402, 202403], # Lista de datas (AAAAMM)
-    documentos=[4060]               # 4060=Prudencial, 4010=Individual
+    tipo='prudencial',              # OBRIGATÓRIO: 'prudencial' ou 'individual'
+    documentos=[4060]               # Opcional: códigos de documento
 )
 ```
 
@@ -258,7 +262,8 @@ dados = analisador.get_dados_cosif(
 - `identificador` (str): CNPJ de 8 dígitos ou nome da instituição
 - `contas` (list): Nomes ou códigos das contas contábeis
 - `datas` (list): Datas no formato AAAAMM (ex: 202403 = março/2024)
-- `documentos` (list): Códigos de documento (4060=prudencial, 4066=prudencial agregado, 4010=individual, 4016=individual agregado)
+- `tipo` (str, **obrigatório**): Tipo de dados - `'prudencial'` ou `'individual'`
+- `documentos` (list, opcional): Códigos de documento (4060=prudencial, 4066=prudencial agregado, 4010=individual, 4016=individual agregado)
 
 **Retorno**: DataFrame com colunas `Nome_Entidade`, `CNPJ_8`, `Data`, `Conta`, `Valor`, etc.
 
@@ -281,11 +286,10 @@ dados = analisador.get_dados_ifdata(
 - `identificador` (str): CNPJ de 8 dígitos ou nome da instituição
 - `contas` (list): Nomes ou códigos dos indicadores
 - `datas` (list/int): Data(s) no formato AAAAMM
-- `escopo` (str): Controle de escopo da busca:
+- `escopo` (str, **obrigatório na v2.0.1**): Escopo específico da busca:
   - `'individual'`: Apenas dados da instituição individual
   - `'prudencial'`: Apenas dados do conglomerado prudencial
   - `'financeiro'`: Apenas dados do conglomerado financeiro
-  - `'cascata'` (padrão): Tenta todas as opções acima em ordem
 
 **Retorno**: DataFrame com colunas `Nome_Entidade`, `CNPJ_8`, `Data`, `Conta`, `Valor`, `ID_BUSCA_USADO` (indica a origem do dado).
 
@@ -297,14 +301,14 @@ Busca informações cadastrais de instituições (Segmento, Situação, Endereç
 
 ```python
 atributos = analisador.get_atributos_cadastro(
-    identificadores=['60701190', '00000208', '00416968'],
+    identificador=['60701190', '00000208', '00416968'],
     atributos=['Segmento', 'Situacao']
 )
 ```
 
 **Parâmetros**:
-- `identificadores` (list): Lista de CNPJs ou nomes
-- `atributos` (list): Lista de atributos desejados (consulte `dicionario_atributos_cadastro.xlsx`)
+- `identificador` (str ou list): CNPJ/nome único ou lista de CNPJs/nomes
+- `atributos` (list): Lista de atributos desejados (consulte `dicionario_atributos_cadastro.xlsx` caso exista)
 
 **Retorno**: DataFrame com `Nome_Entidade`, `CNPJ_8` e os atributos solicitados.
 
@@ -317,22 +321,25 @@ Cria uma tabela-resumo "pivotada" para comparar múltiplos indicadores entre vá
 ```python
 comparacao = analisador.comparar_indicadores(
     identificadores=['00000000', '00000208', '60701190'],
-    indicadores=[
-        {'nome': 'Ativo Total', 'tipo': 'IFDATA', 'escopo': 'prudencial'},
-        {'nome': 'ATIVO TOTAL', 'tipo': 'COSIF', 'documento': 4060},
-        {'nome': 'Segmento', 'tipo': 'ATRIBUTO'}
-    ],
-    datas=202403
+    indicadores={
+        'Ativo Total': {'tipo': 'IFDATA', 'conta': 'Ativo Total', 'escopo_ifdata': 'prudencial'},
+        'ATIVO TOTAL': {'tipo': 'COSIF', 'conta': 'ATIVO TOTAL', 'tipo_cosif': 'prudencial', 'documento_cosif': 4060},
+        'Segmento': {'tipo': 'ATRIBUTO', 'atributo': 'Segmento'}
+    },
+    data=202403
 )
 ```
 
 **Parâmetros**:
 - `identificadores` (list): Lista de instituições
-- `indicadores` (list): Lista de dicionários descrevendo cada indicador:
+- `indicadores` (dict): Dicionário onde a chave é o nome da coluna e o valor é a configuração:
   - `tipo`: `'COSIF'`, `'IFDATA'`, ou `'ATRIBUTO'`
-  - `nome`: Nome ou código da conta/indicador/atributo
-  - Parâmetros específicos: `escopo` (IFDATA), `documento` (COSIF)
-- `datas` (list/int): Data(s) de referência
+  - `conta`: Nome ou código (para COSIF/IFDATA)
+  - `atributo`: Nome do atributo (para ATRIBUTO)
+  - `escopo_ifdata`: Escopo para IFDATA ('individual', 'prudencial', 'financeiro')
+  - `tipo_cosif`: Tipo para COSIF ('prudencial' ou 'individual')
+  - `documento_cosif`: Código do documento COSIF (obrigatório para COSIF)
+- `data` (int): Data de referência
 
 **Retorno**: DataFrame pivotado com instituições nas linhas e indicadores nas colunas.
 
@@ -347,6 +354,7 @@ serie = analisador.get_serie_temporal_indicador(
     identificador='Banco Inter',
     conta='Lucro Líquido',
     fonte='IFDATA',
+    escopo_ifdata='prudencial',  # OBRIGATÓRIO para IFDATA
     data_inicio=202301,
     data_fim=202312,
     drop_na=False,           # Manter linhas com NaN?
@@ -359,6 +367,9 @@ serie = analisador.get_serie_temporal_indicador(
 - `identificador` (str): Instituição
 - `conta` (str/int): Indicador desejado
 - `fonte` (str): `'COSIF'` ou `'IFDATA'`
+- `tipo_cosif` (str, **obrigatório para COSIF**): `'prudencial'` ou `'individual'`
+- `documento_cosif` (int, **obrigatório para COSIF**): Código do documento
+- `escopo_ifdata` (str, **obrigatório para IFDATA**): `'individual'`, `'prudencial'` ou `'financeiro'`
 - `data_inicio` / `data_fim` (int): Intervalo de datas (AAAAMM)
 - **Controle de dados ausentes**:
   - `drop_na` (bool): Remove linhas com NaN (padrão: True)
@@ -437,13 +448,14 @@ Buscar o Ativo Total e Patrimônio Líquido do **Conglomerado Prudencial** do Br
 ```python
 from bacen_analysis import AnalisadorBancario
 
-analisador = AnalisadorBancario(diretorio_output='Output')
+analisador = AnalisadorBancario(diretorio_output='data/output')
 
 dados = analisador.get_dados_cosif(
     identificador='BANCO BRADESCO S.A.',  # Pode usar nome ou CNPJ
     contas=['ATIVO TOTAL', 'PATRIMÔNIO LÍQUIDO'],
     datas=202403,
-    documentos=4060  # Conglomerado Prudencial
+    tipo='prudencial',  # OBRIGATÓRIO: 'prudencial' ou 'individual'
+    documentos=4060     # Opcional: Código do documento
 )
 
 print(dados)
@@ -500,11 +512,12 @@ print("Individual:", ativo_individual['Valor'].values[0])
 print("Prudencial:", ativo_prudencial['Valor'].values[0])
 ```
 
-**Opções de escopo**:
+**Opções de escopo** (obrigatório na v2.0.1):
 - `'individual'`: Apenas a instituição individual
 - `'prudencial'`: Conglomerado prudencial (se existir)
 - `'financeiro'`: Conglomerado financeiro (se existir)
-- `'cascata'` (padrão): Tenta prudencial → financeiro → individual
+
+**Nota**: Na v2.0.1, o escopo `'cascata'` foi removido. Agora é necessário especificar explicitamente o escopo desejado.
 
 ---
 
@@ -515,12 +528,12 @@ Comparar indicadores-chave dos 3 maiores bancos:
 ```python
 comparacao = analisador.comparar_indicadores(
     identificadores=['60701190', '60746948', '00000000'],  # Itaú, Bradesco, BB
-    indicadores=[
-        {'nome': 'Ativo Total', 'tipo': 'IFDATA', 'escopo': 'prudencial'},
-        {'nome': 'Índice de Basileia', 'tipo': 'IFDATA', 'escopo': 'prudencial'},
-        {'nome': 'Segmento', 'tipo': 'ATRIBUTO'}
-    ],
-    datas=202403
+    indicadores={
+        'Ativo Total': {'tipo': 'IFDATA', 'conta': 'Ativo Total', 'escopo_ifdata': 'prudencial'},
+        'Índice de Basileia': {'tipo': 'IFDATA', 'conta': 'Índice de Basileia', 'escopo_ifdata': 'prudencial'},
+        'Segmento': {'tipo': 'ATRIBUTO', 'atributo': 'Segmento'}
+    },
+    data=202403
 )
 
 print(comparacao)
@@ -545,6 +558,7 @@ serie = analisador.get_serie_temporal_indicador(
     identificador='Banco Inter',
     conta='Lucro Líquido',
     fonte='IFDATA',
+    escopo_ifdata='prudencial',  # OBRIGATÓRIO para IFDATA
     data_inicio=202301,
     data_fim=202312
 )
@@ -606,6 +620,7 @@ serie = analisador.get_serie_temporal_indicador(
     identificador='00000208',
     conta='Lucro Líquido',
     fonte='IFDATA',
+    escopo_ifdata='prudencial',  # OBRIGATÓRIO para IFDATA
     data_inicio=202301,
     data_fim=202312,
     drop_na=False,      # NÃO remover linhas com NaN
@@ -639,6 +654,7 @@ dados = analisador.get_dados_cosif(
     identificador='BANCO BRADESCO S.A.',
     contas=contas_mistas,  # Lista mista
     datas=202403,
+    tipo='prudencial',     # OBRIGATÓRIO
     documentos=4060
 )
 
@@ -651,18 +667,10 @@ print(dados)
 
 ### Controle Granular de Escopo no IFDATA
 
-O parâmetro `escopo` no método `get_dados_ifdata()` oferece controle preciso sobre qual nível de dados você deseja:
+O parâmetro `escopo` no método `get_dados_ifdata()` oferece controle preciso sobre qual nível de dados você deseja. **Na v2.0.1, este parâmetro é obrigatório** e o escopo `'cascata'` foi removido:
 
 ```python
-# 1. CASCATA (padrão): Tenta Prudencial → Financeiro → Individual
-dados_cascata = analisador.get_dados_ifdata(
-    identificador='60701190',
-    contas=['Ativo Total'],
-    datas=202403,
-    escopo='cascata'  # ou omita o parâmetro
-)
-
-# 2. INDIVIDUAL: Apenas a instituição individual
+# INDIVIDUAL: Apenas a instituição individual
 dados_individual = analisador.get_dados_ifdata(
     identificador='60701190',
     contas=['Ativo Total'],
@@ -670,7 +678,7 @@ dados_individual = analisador.get_dados_ifdata(
     escopo='individual'
 )
 
-# 3. PRUDENCIAL: Apenas o conglomerado prudencial
+# PRUDENCIAL: Apenas o conglomerado prudencial
 dados_prudencial = analisador.get_dados_ifdata(
     identificador='60701190',
     contas=['Ativo Total'],
@@ -678,13 +686,35 @@ dados_prudencial = analisador.get_dados_ifdata(
     escopo='prudencial'
 )
 
-# 4. FINANCEIRO: Apenas o conglomerado financeiro
+# FINANCEIRO: Apenas o conglomerado financeiro
 dados_financeiro = analisador.get_dados_ifdata(
     identificador='60701190',
     contas=['Ativo Total'],
     datas=202403,
     escopo='financeiro'
 )
+```
+
+**Importante**: Se você precisar tentar múltiplos escopos em ordem (comportamento anterior do `'cascata'`), faça explicitamente:
+
+```python
+from bacen_analysis import DataUnavailableError
+
+# Tentar prudencial primeiro, depois individual se não houver dados
+try:
+    dados = analisador.get_dados_ifdata(
+        identificador='60701190',
+        contas=['Ativo Total'],
+        datas=202403,
+        escopo='prudencial'
+    )
+except DataUnavailableError:
+    dados = analisador.get_dados_ifdata(
+        identificador='60701190',
+        contas=['Ativo Total'],
+        datas=202403,
+        escopo='individual'
+    )
 ```
 
 **Coluna `ID_BUSCA_USADO`**: Indica qual chave encontrou o dado (CNPJ individual, código do conglomerado prudencial ou código do conglomerado financeiro). Use-a para rastrear a origem exata dos dados.
@@ -888,7 +918,7 @@ Cada módulo tem uma responsabilidade única:
 
 ## 11. Migrando da Versão 1.x
 
-A v2.0.0 é **100% compatível** com código da v1.x, exceto pelos imports. Siga estes passos:
+A v2.0.1 é **100% compatível** com código da v1.x, exceto pelos imports. Siga estes passos:
 
 ### Passo 1: Instalar o Pacote
 
@@ -913,7 +943,7 @@ import DataUtils as du
 from DataUtils import AnalisadorBancario
 ```
 
-**DEPOIS (v2.0)**:
+**DEPOIS (v2.0.1)**:
 ```python
 # Import direto, sem manipulação de paths
 from bacen_analysis import AnalisadorBancario
@@ -925,12 +955,13 @@ Todos os métodos mantêm a **mesma assinatura**:
 
 ```python
 # Código v1.x funciona sem alterações (após atualizar imports)
-analisador = AnalisadorBancario(diretorio_output='Output')
+analisador = AnalisadorBancario(diretorio_output='data/output')
 
 dados = analisador.get_dados_cosif(
     identificador='60701190',
     contas=['ATIVO TOTAL'],
     datas=202403,
+    tipo='prudencial',
     documentos=4060
 )
 ```
@@ -977,13 +1008,13 @@ Se uma consulta não retornar dados, siga este checklist:
 
 #### 1. Consulte os Dicionários de Referência
 
-Use os arquivos Excel no diretório `Output/` para encontrar os identificadores corretos:
+Use os arquivos Excel no diretório `data/output/` para encontrar os identificadores corretos:
 
 - **`dicionario_entidades.xlsx`**: Nomes oficiais e CNPJs de instituições
 - **`dicionario_contas_cosif_individual.xlsx`**: Contas COSIF individual
 - **`dicionario_contas_cosif_prudencial.xlsx`**: Contas COSIF prudencial
-- **`dicionario_contas_ifdata.xlsx`**: Indicadores IFDATA
-- **`dicionario_atributos_cadastro.xlsx`**: Atributos cadastrais disponíveis
+- **`dicionario_contas_ifdata_valores.xlsx`**: Indicadores IFDATA
+- **`dicionario_atributos_cadastro.xlsx`**: Atributos cadastrais disponíveis (caso exista)
 
 #### 2. Verifique o Escopo/Documento
 
@@ -1012,7 +1043,7 @@ dados = analisador.get_dados_ifdata(
     identificador='60701190',
     contas=['Ativo Total'],
     datas=202403,
-    escopo='cascata'
+    escopo='prudencial'  # Especificar explicitamente o escopo desejado
 )
 
 # Verificar de onde o dado veio
@@ -1041,24 +1072,36 @@ dados = analisador.get_dados_cosif(
     identificador='60746948',    # CNPJ sempre funciona
     contas=['ATIVO TOTAL'],      # Nome completo da conta
     datas=202403,
+    tipo='prudencial',           # OBRIGATÓRIO
     documentos=4060
 )
 ```
 
 #### 5. Verifique Disponibilidade dos Dados
 
-Nem todos os dados existem para todas as instituições em todas as datas. Use o escopo `'cascata'` (padrão) para buscar automaticamente em múltiplos níveis:
+Nem todos os dados existem para todas as instituições em todas as datas. **Na v2.0.1, você deve especificar explicitamente o escopo**. Se precisar tentar múltiplos escopos, faça explicitamente:
 
 ```python
-dados = analisador.get_dados_ifdata(
-    identificador='00000208',
-    contas=['Índice de Basileia'],
-    datas=202403,
-    escopo='cascata'  # Tenta prudencial → financeiro → individual
-)
+# Tentar múltiplos escopos em ordem (comportamento anterior do 'cascata')
+from bacen_analysis import DataUnavailableError
 
-if dados.empty:
-    print("Dado não disponível para esta data/instituição")
+escopos_para_tentar = ['prudencial', 'financeiro', 'individual']
+dados = None
+
+for escopo in escopos_para_tentar:
+    try:
+        dados = analisador.get_dados_ifdata(
+            identificador='00000208',
+            contas=['Índice de Basileia'],
+            datas=202403,
+            escopo=escopo
+        )
+        break  # Se encontrou dados, para o loop
+    except DataUnavailableError:
+        continue  # Tenta próximo escopo
+
+if dados is None:
+    print("Dado não disponível para esta data/instituição em nenhum escopo")
 ```
 
 ---
@@ -1109,4 +1152,4 @@ Contribuições são bem-vindas! Para contribuir:
 5. Abra um Pull Request
 
 
-**Versão**: 2.0.0 | **Última atualização**: Novembro 2025
+**Versão**: 2.0.1 | **Última atualização**: Novembro 2025

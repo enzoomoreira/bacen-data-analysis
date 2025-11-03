@@ -6,6 +6,7 @@ import pandas as pd
 from typing import List, Union, Optional
 from bacen_analysis.data.repository import DataRepository
 from bacen_analysis.core.entity_resolver import EntityIdentifierResolver, ResolvedEntity
+from bacen_analysis.exceptions import EntityNotFoundError
 
 
 class CadastroProvider:
@@ -57,8 +58,11 @@ class CadastroProvider:
         df_ifd_cad = self._get_df_ifd_cad()
 
         for ident in identificador:
-            cnpj_8 = self._entity_resolver.find_cnpj(ident)
-            if not cnpj_8:
+            try:
+                # find_cnpj lança exceção se não encontrar
+                cnpj_8 = self._entity_resolver.find_cnpj(ident)
+            except EntityNotFoundError:
+                # Se não encontrar, continua com o próximo identificador
                 continue
             
             info_ent = self._entity_resolver.get_entity_identifiers(cnpj_8)

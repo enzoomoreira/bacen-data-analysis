@@ -12,6 +12,7 @@ from bacen_analysis.providers.ifdata import IFDATADataProvider
 from bacen_analysis.providers.cadastro import CadastroProvider
 from bacen_analysis.analysis.comparator import IndicadorComparator
 from bacen_analysis.analysis.time_series import TimeSeriesProvider
+from bacen_analysis.utils.logger import get_logger
 
 
 class AnalisadorBancario:
@@ -33,7 +34,8 @@ class AnalisadorBancario:
         Raises:
             FileNotFoundError: Se algum arquivo necessário não for encontrado
         """
-        print("Iniciando o Analisador Bancário...")
+        self._logger = get_logger(__name__)
+        self._logger.info("Iniciando o Analisador Bancário...")
         
         # Camada de dados
         loader = DataLoader(diretorio_output)
@@ -70,11 +72,11 @@ class AnalisadorBancario:
         self.df_ifd_cad = self._repository.df_ifd_cad
         
         stats = self._repository.get_stats()
-        print("Analisador Bancário iniciado com sucesso!")
-        print(f"  - {stats['cosif_ind']:,} linhas em COSIF Individual")
-        print(f"  - {stats['cosif_prud']:,} linhas em COSIF Prudencial")
-        print(f"  - {stats['ifd_val']:,} linhas em IFDATA Valores")
-        print(f"  - {stats['ifd_cad']:,} linhas em IFDATA Cadastro")
+        self._logger.info("Analisador Bancário iniciado com sucesso!")
+        self._logger.info(f"  - {stats['cosif_ind']:,} linhas em COSIF Individual")
+        self._logger.info(f"  - {stats['cosif_prud']:,} linhas em COSIF Prudencial")
+        self._logger.info(f"  - {stats['ifd_val']:,} linhas em IFDATA Valores")
+        self._logger.info(f"  - {stats['ifd_cad']:,} linhas em IFDATA Cadastro")
     
     # Métodos públicos - delegam para os providers
     
@@ -83,22 +85,26 @@ class AnalisadorBancario:
         identificador: str,
         contas: Union[List[str], List[int], List[Union[str, int]]],
         datas: Union[int, List[int]],
-        tipo: str = 'prudencial',
+        tipo: str,
         documentos: Optional[Union[int, List[int]]] = None
     ) -> pd.DataFrame:
         """
-        Busca dados COSIF. Determina automaticamente o 'tipo' (prudencial/individual)
-        se um 'documento' for fornecido, tornando o parâmetro 'tipo' um fallback.
+        Busca dados COSIF com tipo obrigatório.
         
         Args:
             identificador: Nome ou CNPJ da instituição
             contas: Lista de nomes ou códigos de contas COSIF
             datas: Data única ou lista de datas no formato YYYYMM
-            tipo: Tipo de dados ('prudencial' ou 'individual')
+            tipo: Tipo de dados OBRIGATÓRIO ('prudencial' ou 'individual')
             documentos: Documento único ou lista de documentos COSIF
             
         Returns:
             DataFrame com os dados solicitados
+            
+        Raises:
+            InvalidScopeError: Se o tipo não for válido
+            EntityNotFoundError: Se a entidade não for encontrada
+            DataUnavailableError: Se os dados não estiverem disponíveis
         """
         return self._cosif_provider.get_dados(
             identificador=identificador,
@@ -113,19 +119,24 @@ class AnalisadorBancario:
         identificador: str,
         contas: Union[List[str], List[int], List[Union[str, int]]],
         datas: Union[int, List[int]],
-        escopo: str = 'cascata'
+        escopo: str
     ) -> pd.DataFrame:
         """
-        Busca dados IFDATA com controle de escopo.
+        Busca dados IFDATA com escopo obrigatório.
         
         Args:
             identificador: Nome ou CNPJ da instituição
             contas: Lista de nomes ou códigos de contas IFDATA
             datas: Data única ou lista de datas no formato YYYYMM
-            escopo: Escopo da busca ('cascata', 'individual', 'prudencial', 'financeiro')
+            escopo: Escopo OBRIGATÓRIO da busca ('individual', 'prudencial', 'financeiro')
             
         Returns:
             DataFrame com os dados solicitados
+            
+        Raises:
+            InvalidScopeError: Se o escopo não for válido
+            EntityNotFoundError: Se a entidade não for encontrada
+            DataUnavailableError: Se os dados não estiverem disponíveis
         """
         return self._ifdata_provider.get_dados(
             identificador=identificador,
@@ -160,7 +171,6 @@ class AnalisadorBancario:
         identificadores: List[str],
         indicadores: Dict[str, Dict],
         data: int,
-        documento_cosif: Optional[int] = 4060,
         fillna: Optional[Union[int, float, str]] = None
     ) -> pd.DataFrame:
         """
@@ -169,19 +179,26 @@ class AnalisadorBancario:
         
         Args:
             identificadores: Lista de identificadores (nomes ou CNPJs) de instituições
-            indicadores: Dicionário de configuração de indicadores
+            indicadores: Dicionário de configuração de indicadores. Cada indicador deve ter:
+                - 'tipo' ('COSIF', 'IFDATA', ou 'ATRIBUTO')
+                - 'conta' (para COSIF/IFDATA) ou 'atributo' (para ATRIBUTO)
+                - Para indicadores COSIF: 'tipo_cosif' ('prudencial' ou 'individual') e 
+                  'documento_cosif' (OBRIGATÓRIO - especificar na configuração do indicador)
+                - Para indicadores IFDATA: 'escopo_ifdata' ('individual', 'prudencial' ou 'financeiro')
             data: Data no formato YYYYMM para comparação
-            documento_cosif: Documento COSIF a usar (default: 4060)
             fillna: Valor para preencher NaNs
             
         Returns:
             DataFrame pivotado com identificadores nas linhas e indicadores nas colunas
+            
+        Raises:
+            InvalidScopeError: Se documento_cosif não for especificado em indicador COSIF
+            KeyError: Se configuração de indicador estiver incompleta
         """
         return self._comparator.comparar(
             identificadores=identificadores,
             indicadores=indicadores,
             data=data,
-            documento_cosif=documento_cosif,
             fillna=fillna
         )
     
@@ -190,8 +207,9 @@ class AnalisadorBancario:
         identificador: str,
         conta: Union[str, int],
         fonte: str = 'COSIF',
-        documento_cosif: Optional[int] = 4060,
-        escopo_ifdata: str = 'cascata',
+        documento_cosif: Optional[int] = None,
+        tipo_cosif: Optional[str] = None,
+        escopo_ifdata: Optional[str] = None,
         fill_value: Optional[Union[int, float]] = None,
         replace_zeros_with_nan: bool = False,
         drop_na: bool = True,
@@ -200,14 +218,15 @@ class AnalisadorBancario:
         datas: Optional[List[int]] = None
     ) -> pd.DataFrame:
         """
-        Busca a série temporal de um indicador, com controle de escopo para IFDATA.
+        Busca a série temporal de um indicador, com controle de escopo obrigatório.
 
         Args:
             identificador: Nome ou CNPJ da instituição
             conta: Nome ou código da conta/indicador
             fonte: Fonte dos dados ('COSIF' ou 'IFDATA')
-            documento_cosif: Documento COSIF a usar (se fonte='COSIF')
-            escopo_ifdata: Escopo para IFDATA
+            documento_cosif: Documento COSIF a usar (OBRIGATÓRIO se fonte='COSIF')
+            tipo_cosif: Tipo OBRIGATÓRIO para COSIF ('prudencial' ou 'individual')
+            escopo_ifdata: Escopo OBRIGATÓRIO para IFDATA ('individual', 'prudencial', 'financeiro')
             fill_value: Valor para preencher NaNs
             replace_zeros_with_nan: Se True, converte zeros em NaN
             drop_na: Se True, remove linhas com NaN
@@ -217,12 +236,18 @@ class AnalisadorBancario:
 
         Returns:
             DataFrame com série temporal
+            
+        Raises:
+            ValueError: Se escopo/tipo não for especificado quando necessário
+            InvalidScopeError: Se escopo/tipo inválido
+            EntityNotFoundError: Se identificador não encontrado
         """
         return self._time_series_provider.get_serie_temporal(
             identificador=identificador,
             conta=conta,
             fonte=fonte,
             documento_cosif=documento_cosif,
+            tipo_cosif=tipo_cosif,
             escopo_ifdata=escopo_ifdata,
             fill_value=fill_value,
             replace_zeros_with_nan=replace_zeros_with_nan,
@@ -253,7 +278,7 @@ class AnalisadorBancario:
                 - fonte: 'COSIF' | 'IFDATA'
                 - datas: List[int] (datas no formato YYYYMM)
                 - documento_cosif: Optional[int] (para COSIF, default: 4060)
-                - escopo_ifdata: Optional[str] (para IFDATA, default: 'cascata')
+                - escopo_ifdata: str (OBRIGATÓRIO para IFDATA: 'individual', 'prudencial' ou 'financeiro')
                 - nome_indicador: str (para identificação na coluna 'Conta')
             fill_value: Valor para preencher NaNs (aplicado a todos)
             replace_zeros_with_nan: Se True, converte zeros em NaN (aplicado a todos)
@@ -291,6 +316,7 @@ class AnalisadorBancario:
     
     def reload_data(self) -> None:
         """Recarrega todos os arquivos Parquet e recria os mapeamentos internos."""
+        self._logger.info("Recarregando dados...")
         self._repository.reload()
         self._entity_resolver.reload_mapping()
         self.clear_cache()
@@ -302,9 +328,9 @@ class AnalisadorBancario:
         self.df_ifd_cad = self._repository.df_ifd_cad
         
         stats = self._repository.get_stats()
-        print("Dados recarregados com sucesso!")
-        print(f"  - {stats['cosif_ind']:,} linhas em COSIF Individual")
-        print(f"  - {stats['cosif_prud']:,} linhas em COSIF Prudencial")
-        print(f"  - {stats['ifd_val']:,} linhas em IFDATA Valores")
-        print(f"  - {stats['ifd_cad']:,} linhas em IFDATA Cadastro")
+        self._logger.info("Dados recarregados com sucesso!")
+        self._logger.info(f"  - {stats['cosif_ind']:,} linhas em COSIF Individual")
+        self._logger.info(f"  - {stats['cosif_prud']:,} linhas em COSIF Prudencial")
+        self._logger.info(f"  - {stats['ifd_val']:,} linhas em IFDATA Valores")
+        self._logger.info(f"  - {stats['ifd_cad']:,} linhas em IFDATA Cadastro")
 

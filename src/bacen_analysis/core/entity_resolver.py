@@ -8,6 +8,7 @@ from typing import Dict, Optional
 from functools import lru_cache
 from dataclasses import dataclass
 from bacen_analysis.data.repository import DataRepository
+from bacen_analysis.exceptions import EntityNotFoundError, AmbiguousIdentifierError
 
 
 @dataclass(frozen=True)
@@ -71,7 +72,7 @@ class EntityIdentifierResolver:
         self._mapa_nomes_df['nome_upper'] = self._mapa_nomes_df['nome'].str.strip().str.upper()
     
     @lru_cache(maxsize=256)
-    def find_cnpj(self, identificador: str) -> Optional[str]:
+    def find_cnpj(self, identificador: str) -> str:
         """
         Encontra o CNPJ_8 a partir de um nome ou de um CNPJ.
         
@@ -79,7 +80,11 @@ class EntityIdentifierResolver:
             identificador: Nome da instituição ou CNPJ de 8 dígitos
             
         Returns:
-            CNPJ de 8 dígitos ou None se não encontrado
+            CNPJ de 8 dígitos
+            
+        Raises:
+            EntityNotFoundError: Se o identificador não for encontrado
+            AmbiguousIdentifierError: Se o identificador for ambíguo
         """
         identificador_upper = identificador.strip().upper()
         
@@ -99,17 +104,25 @@ class EntityIdentifierResolver:
             self._mapa_nomes_df['nome_upper'].str.contains(identificador_upper, na=False)
         ]
         if not match_contains.empty:
-            # Se encontrou mais de um, avisa o usuário sobre a ambiguidade
+            # Se encontrou mais de um, lança exceção sobre a ambiguidade
             if len(match_contains) > 1:
                 nomes_encontrados = match_contains['nome'].tolist()
-                print(f"AVISO: O identificador '{identificador}' é ambíguo. "
-                      f"Correspondências encontradas: {nomes_encontrados[:3]}")
-                print(f"       -> Usando a primeira correspondência: '{nomes_encontrados[0]}'. "
-                      f"Para precisão, use um nome mais completo ou o CNPJ de 8 dígitos.")
+                raise AmbiguousIdentifierError(
+                    identifier=identificador,
+                    matches=nomes_encontrados,
+                    suggestion="Use um nome mais completo ou o CNPJ de 8 dígitos para maior precisão"
+                )
             return match_contains['cnpj_8'].iloc[0]
         
-        print(f"AVISO: Identificador '{identificador}' não encontrado no mapa.")
-        return None
+        # Não encontrado
+        raise EntityNotFoundError(
+            identifier=identificador,
+            suggestions=[
+                "Verifique se o nome ou CNPJ está correto",
+                "Use o CNPJ de 8 dígitos para maior precisão",
+                "Verifique a grafia do nome da instituição"
+            ]
+        )
     
     @lru_cache(maxsize=256)
     def get_entity_identifiers(self, cnpj_8: str) -> Dict[str, Optional[str]]:
@@ -173,18 +186,14 @@ class EntityIdentifierResolver:
 
         Returns:
             ResolvedEntity com todos os identificadores e metadados
+            
+        Raises:
+            EntityNotFoundError: Se o identificador não for encontrado
+            AmbiguousIdentifierError: Se o identificador for ambíguo
         """
+        # find_cnpj() lança exceção se não encontrar, então cnpj_8 nunca será None
         cnpj_8 = self.find_cnpj(identificador)
-
-        if not cnpj_8:
-            return ResolvedEntity(
-                cnpj_interesse=None,
-                cnpj_reporte_cosif=None,
-                cod_congl_prud=None,
-                nome_entidade=None,
-                identificador_original=identificador
-            )
-
+        
         info = self.get_entity_identifiers(cnpj_8)
 
         return ResolvedEntity(

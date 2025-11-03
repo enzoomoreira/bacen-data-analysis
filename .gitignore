@@ -4,10 +4,11 @@ __pycache__
 *egg-info
 
 # Data Folders
-data
+/data
 
 # Temp Folders
 Temp
+temp
 
 # Analysis Results
 Results

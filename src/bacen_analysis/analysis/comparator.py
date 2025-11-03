@@ -9,6 +9,7 @@ from bacen_analysis.providers.cosif import COSIFDataProvider
 from bacen_analysis.providers.ifdata import IFDATADataProvider
 from bacen_analysis.providers.cadastro import CadastroProvider
 from bacen_analysis.core.entity_resolver import EntityIdentifierResolver, ResolvedEntity
+from bacen_analysis.exceptions import InvalidScopeError, DataUnavailableError
 
 
 class IndicadorComparator:
@@ -44,7 +45,6 @@ class IndicadorComparator:
         identificadores: List[str],
         indicadores: Dict[str, Dict],
         data: int,
-        documento_cosif: Optional[int] = 4060,
         fillna: Optional[Union[int, float, str]] = None
     ) -> pd.DataFrame:
         """
@@ -54,10 +54,12 @@ class IndicadorComparator:
         Args:
             identificadores: Lista de identificadores (nomes ou CNPJs) de instituições
             indicadores: Dicionário onde a chave é o nome da coluna e o valor é a configuração do indicador
-                        Cada configuração deve ter 'tipo' ('COSIF', 'IFDATA', ou 'ATRIBUTO') e
-                        'conta' (para COSIF/IFDATA) ou 'atributo' (para ATRIBUTO)
+                        Cada configuração deve ter:
+                        - 'tipo' ('COSIF', 'IFDATA', ou 'ATRIBUTO')
+                        - 'conta' (para COSIF/IFDATA) ou 'atributo' (para ATRIBUTO)
+                        - Para COSIF: 'tipo_cosif' ('prudencial' ou 'individual') e 'documento_cosif' (OBRIGATÓRIO)
+                        - Para IFDATA: 'escopo_ifdata' ('individual', 'prudencial' ou 'financeiro')
             data: Data no formato YYYYMM para comparação
-            documento_cosif: Documento COSIF a usar (default: 4060)
             fillna: Valor para preencher NaNs (0, np.nan, ou string 'nan')
             
         Returns:
@@ -66,7 +68,9 @@ class IndicadorComparator:
         Raises:
             KeyError: Se configuração de indicador estiver incompleta
             ValueError: Se tipo de indicador não for reconhecido
+            InvalidScopeError: Se documento_cosif não for especificado em indicador COSIF
         """
+        
         # OTIMIZAÇÃO: Resolve todos os identificadores uma vez no início
         resolved_entities = {
             ident: self._entity_resolver.resolve_full(ident)
@@ -104,18 +108,42 @@ class IndicadorComparator:
                             f"Indicador '{nome_coluna}' de tipo COSIF precisa da chave 'conta'."
                         )
 
-                    # Usa método otimizado com entidade já resolvida
-                    df_res = self._cosif_provider.get_dados_with_resolved(
-                        resolved,
-                        contas=[conta],
-                        datas=[data],
-                        documentos=[documento_cosif] if documento_cosif else None
-                    )
+                    tipo_cosif = info_ind.get('tipo_cosif')
+                    if not tipo_cosif:
+                        raise InvalidScopeError(
+                            scope_name='tipo_cosif',
+                            value=None,
+                            valid_values=['prudencial', 'individual'],
+                            context=f"Indicador '{nome_coluna}' de tipo COSIF precisa da chave 'tipo_cosif' especificada na configuração do indicador"
+                        )
 
-                    if not df_res.empty:
-                        valor = df_res.sort_values('DOCUMENTO_COSIF', ascending=False)[
-                            'VALOR_CONTA_COSIF'
-                        ].iloc[0]
+                    documento_cosif = info_ind.get('documento_cosif')
+                    if documento_cosif is None:
+                        raise InvalidScopeError(
+                            scope_name='documento_cosif',
+                            value=None,
+                            valid_values=None,
+                            context=f"Indicador '{nome_coluna}' de tipo COSIF precisa da chave 'documento_cosif' especificada na configuração do indicador"
+                        )
+
+                    # Usa método otimizado com entidade já resolvida
+                    # Captura DataUnavailableError para permitir comparações mesmo quando alguns dados não existem
+                    try:
+                        df_res = self._cosif_provider.get_dados_with_resolved(
+                            resolved,
+                            contas=[conta],
+                            datas=[data],
+                            tipo=tipo_cosif,
+                            documentos=[documento_cosif] if documento_cosif else None
+                        )
+
+                        if not df_res.empty:
+                            valor = df_res.sort_values('DOCUMENTO_COSIF', ascending=False)[
+                                'VALOR_CONTA_COSIF'
+                            ].iloc[0]
+                    except DataUnavailableError:
+                        # Dados não disponíveis para esta entidade/indicador - mantém valor como None
+                        valor = None
 
                 elif tipo == 'IFDATA':
                     try:
@@ -125,18 +153,28 @@ class IndicadorComparator:
                             f"Indicador '{nome_coluna}' de tipo IFDATA precisa da chave 'conta'."
                         )
 
-                    escopo = info_ind.get('escopo_ifdata', 'cascata')
+                    escopo = info_ind.get('escopo_ifdata')
+                    if not escopo:
+                        raise KeyError(
+                            f"Indicador '{nome_coluna}' de tipo IFDATA precisa da chave 'escopo_ifdata' "
+                            f"('individual', 'prudencial' ou 'financeiro')."
+                        )
 
                     # Usa método otimizado com entidade já resolvida
-                    df_res = self._ifdata_provider.get_dados_with_resolved(
-                        resolved,
-                        contas=[conta],
-                        datas=[data],
-                        escopo=escopo
-                    )
+                    # Captura DataUnavailableError para permitir comparações mesmo quando alguns dados não existem
+                    try:
+                        df_res = self._ifdata_provider.get_dados_with_resolved(
+                            resolved,
+                            contas=[conta],
+                            datas=[data],
+                            escopo=escopo
+                        )
 
-                    if not df_res.empty:
-                        valor = df_res['VALOR_CONTA_IFD_VAL'].iloc[0]
+                        if not df_res.empty:
+                            valor = df_res['VALOR_CONTA_IFD_VAL'].iloc[0]
+                    except DataUnavailableError:
+                        # Dados não disponíveis para esta entidade/indicador - mantém valor como None
+                        valor = None
 
                 elif tipo == 'ATRIBUTO':
                     try:

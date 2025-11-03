@@ -9,6 +9,7 @@ from pandas.tseries.offsets import MonthEnd
 from bacen_analysis.providers.cosif import COSIFDataProvider
 from bacen_analysis.providers.ifdata import IFDATADataProvider
 from bacen_analysis.core.entity_resolver import EntityIdentifierResolver, ResolvedEntity
+from bacen_analysis.exceptions import EntityNotFoundError, InvalidScopeError, DataUnavailableError
 
 
 class TimeSeriesProvider:
@@ -41,8 +42,9 @@ class TimeSeriesProvider:
         identificador: str,
         conta: Union[str, int],
         fonte: str = 'COSIF',
-        documento_cosif: Optional[int] = 4060,
-        escopo_ifdata: str = 'cascata',
+        documento_cosif: Optional[int] = None,
+        tipo_cosif: Optional[str] = None,
+        escopo_ifdata: Optional[str] = None,
         fill_value: Optional[Union[int, float]] = None,
         replace_zeros_with_nan: bool = False,
         drop_na: bool = True,
@@ -51,14 +53,15 @@ class TimeSeriesProvider:
         datas: Optional[List[int]] = None
     ) -> pd.DataFrame:
         """
-        Busca a série temporal de um indicador, com controle de escopo para IFDATA.
+        Busca a série temporal de um indicador, com controle de escopo obrigatório.
         
         Args:
             identificador: Nome ou CNPJ da instituição
             conta: Nome ou código da conta/indicador
             fonte: Fonte dos dados ('COSIF' ou 'IFDATA')
-            documento_cosif: Documento COSIF a usar (se fonte='COSIF')
-            escopo_ifdata: Escopo para IFDATA ('cascata', 'individual', 'prudencial', 'financeiro')
+            documento_cosif: Documento COSIF a usar (OBRIGATÓRIO se fonte='COSIF')
+            tipo_cosif: Tipo OBRIGATÓRIO para COSIF ('prudencial' ou 'individual')
+            escopo_ifdata: Escopo OBRIGATÓRIO para IFDATA ('individual', 'prudencial', 'financeiro')
             fill_value: Valor para preencher NaNs
             replace_zeros_with_nan: Se True, converte zeros em NaN
             drop_na: Se True, remove linhas com NaN
@@ -70,13 +73,20 @@ class TimeSeriesProvider:
             DataFrame com colunas: DATA, Nome_Entidade, CNPJ_8, Conta, Valor
             
         Raises:
-            ValueError: Se parâmetros de data inválidos ou identificador não encontrado
+            ValueError: Se parâmetros de data inválidos
+            InvalidScopeError: Se escopo/tipo não for especificado ou inválido
+            EntityNotFoundError: Se identificador não encontrado
         """
         # OTIMIZAÇÃO: Resolve identificador uma única vez
         resolved = self._entity_resolver.resolve_full(identificador)
         if not resolved.cnpj_interesse:
-            print(f"AVISO: Identificador '{identificador}' não encontrado.")
-            return pd.DataFrame(columns=['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'])
+            raise EntityNotFoundError(
+                identifier=identificador,
+                suggestions=[
+                    "Verifique se o nome ou CNPJ está correto",
+                    "Use o CNPJ de 8 dígitos para maior precisão"
+                ]
+            )
 
         nome_entidade = resolved.nome_entidade or identificador
         
@@ -100,20 +110,45 @@ class TimeSeriesProvider:
         if not datas_yyyymm:
             return pd.DataFrame(columns=['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'])
         
+        # Valida e prepara parâmetros de escopo
+        fonte_upper = fonte.upper()
+        if fonte_upper == 'COSIF':
+            if not tipo_cosif:
+                raise ValueError(
+                    "Para fonte 'COSIF', o parâmetro 'tipo_cosif' é obrigatório. "
+                    "Use 'prudencial' ou 'individual'."
+                )
+            if documento_cosif is None:
+                raise InvalidScopeError(
+                    scope_name='documento_cosif',
+                    value=None,
+                    valid_values=None,
+                    context="Para fonte 'COSIF', o parâmetro 'documento_cosif' é obrigatório"
+                )
+        elif fonte_upper == 'IFDATA':
+            if not escopo_ifdata:
+                raise ValueError(
+                    "Para fonte 'IFDATA', o parâmetro 'escopo_ifdata' é obrigatório. "
+                    "Use 'individual', 'prudencial' ou 'financeiro'."
+                )
+        else:
+            raise ValueError(f"Fonte '{fonte}' inválida. Use 'COSIF' ou 'IFDATA'.")
+
         # Busca dados brutos usando métodos otimizados
         df_bruto = pd.DataFrame()
         valor_col = ''
 
-        if fonte.upper() == 'COSIF':
+        if fonte_upper == 'COSIF':
             # Usa método otimizado com entidade já resolvida
             df_bruto = self._cosif_provider.get_dados_with_resolved(
                 resolved,
                 contas=[conta],
                 datas=datas_yyyymm,
+                tipo=tipo_cosif,
                 documentos=[documento_cosif] if documento_cosif else None
             )
             valor_col = 'VALOR_CONTA_COSIF'
-        elif fonte.upper() == 'IFDATA':
+        elif fonte_upper == 'IFDATA':
             # Usa método otimizado com entidade já resolvida
             df_bruto = self._ifdata_provider.get_dados_with_resolved(
                 resolved,
@@ -123,8 +158,8 @@ class TimeSeriesProvider:
             )
             valor_col = 'VALOR_CONTA_IFD_VAL'
         
-        if df_bruto.empty:
-            return pd.DataFrame(columns=['DATA', 'Nome_Entidade', 'CNPJ_8', 'Conta', 'Valor'])
+        # Os providers sempre lançam DataUnavailableError quando não há dados,
+        # então se chegamos aqui, df_bruto não está vazio
         
         # Limpeza de duplicatas por data
         coluna_temp_isna = '_valor_is_na'
@@ -183,7 +218,7 @@ class TimeSeriesProvider:
                 - fonte: 'COSIF' | 'IFDATA'
                 - datas: List[int] (datas no formato YYYYMM)
                 - documento_cosif: Optional[int] (para COSIF, default: 4060)
-                - escopo_ifdata: Optional[str] (para IFDATA, default: 'cascata')
+                - escopo_ifdata: str (OBRIGATÓRIO para IFDATA: 'individual', 'prudencial' ou 'financeiro')
                 - nome_indicador: str (para identificação na coluna 'Conta')
             fill_value: Valor para preencher NaNs (aplicado a todos)
             replace_zeros_with_nan: Se True, converte zeros em NaN (aplicado a todos)
@@ -258,19 +293,23 @@ class TimeSeriesProvider:
             }
 
             if fonte_upper == 'IFDATA':
-                escopo_ifdata = req.get('escopo_ifdata', 'cascata')
+                escopo_ifdata = req.get('escopo_ifdata')
+                if not escopo_ifdata:
+                    continue  # Ignora requisições sem escopo
                 requisicao_exp['escopo_ifdata'] = escopo_ifdata
 
-                ids_para_buscar = self._ifdata_provider.resolve_ids_for_scope(resolved, escopo_ifdata)
-                ifdata_ids.update(ids_para_buscar)
+                id_busca = self._ifdata_provider.resolve_ids_for_scope(resolved, escopo_ifdata)
+                ifdata_ids.add(id_busca)
                 ifdata_datas.update(datas_yyyymm)
                 if isinstance(conta, (str, int, float)):
                     ifdata_contas.add(conta)
 
             elif fonte_upper == 'COSIF':
-                documento_cosif = req.get('documento_cosif', 4060)
-                tipo_inicial = req.get('tipo', 'prudencial')
-                tipo_cosif, documentos_lista = self._cosif_provider.determine_tipo(tipo_inicial, documento_cosif)
+                documento_cosif = req.get('documento_cosif')
+                tipo_cosif = req.get('tipo_cosif')
+                if not tipo_cosif:
+                    continue  # Ignora requisições sem tipo
+                documentos_lista = [documento_cosif] if documento_cosif else None
 
                 requisicao_exp['tipo_cosif'] = tipo_cosif
                 requisicao_exp['documentos_lista'] = documentos_lista
@@ -296,6 +335,8 @@ class TimeSeriesProvider:
 
         df_ifdata_subset: Optional[pd.DataFrame] = None
         if ifdata_ids and ifdata_datas:
+            # Converte sets para listas antes de passar para build_subset
+            # (ifdata_ids, ifdata_datas e ifdata_contas são sets para eliminar duplicatas)
             df_ifdata_subset = self._ifdata_provider.build_subset(
                 ids_para_buscar=list(ifdata_ids),
                 datas=list(ifdata_datas),
@@ -331,32 +372,40 @@ class TimeSeriesProvider:
             df_bruto = pd.DataFrame()
             valor_col = ''
 
-            if fonte_upper == 'IFDATA':
-                escopo_ifdata = req.get('escopo_ifdata', 'cascata')
-                df_bruto = self._ifdata_provider.get_dados_with_resolved(
-                    resolved,
-                    contas=[conta],
-                    datas=datas_yyyymm,
-                    escopo=escopo_ifdata,
-                    df_ifd_val_override=df_ifdata_subset
-                )
-                valor_col = 'VALOR_CONTA_IFD_VAL'
-            elif fonte_upper == 'COSIF':
-                tipo_cosif = req['tipo_cosif']
-                documentos_lista = req.get('documentos_lista')
-                df_bruto = self._cosif_provider.get_dados_with_resolved(
-                    resolved,
-                    contas=[conta],
-                    datas=datas_yyyymm,
-                    tipo=tipo_cosif,
-                    documentos=documentos_lista,
-                    df_cosif_override=cosif_subsets.get(tipo_cosif)
-                )
-                valor_col = 'VALOR_CONTA_COSIF'
-            else:
-                continue
+            try:
+                if fonte_upper == 'IFDATA':
+                    escopo_ifdata = req.get('escopo_ifdata')
+                    if not escopo_ifdata:
+                        continue  # Ignora requisições sem escopo
+                    df_bruto = self._ifdata_provider.get_dados_with_resolved(
+                        resolved,
+                        contas=[conta],
+                        datas=datas_yyyymm,
+                        escopo=escopo_ifdata,
+                        df_ifd_val_override=df_ifdata_subset
+                    )
+                    valor_col = 'VALOR_CONTA_IFD_VAL'
+                elif fonte_upper == 'COSIF':
+                    tipo_cosif = req['tipo_cosif']
+                    documentos_lista = req.get('documentos_lista')
+                    df_bruto = self._cosif_provider.get_dados_with_resolved(
+                        resolved,
+                        contas=[conta],
+                        datas=datas_yyyymm,
+                        tipo=tipo_cosif,
+                        documentos=documentos_lista,
+                        df_cosif_override=cosif_subsets.get(tipo_cosif)
+                    )
+                    valor_col = 'VALOR_CONTA_COSIF'
+                else:
+                    continue
 
-            if df_bruto.empty:
+                # Salvaguarda defensiva para casos extremos onde um DataFrame vazio possa passar
+                if df_bruto.empty:
+                    continue
+
+            except DataUnavailableError:
+                # Dados não disponíveis para esta requisição - continua para a próxima
                 continue
 
             nome_entidade = resolved.nome_entidade or req['identificador']

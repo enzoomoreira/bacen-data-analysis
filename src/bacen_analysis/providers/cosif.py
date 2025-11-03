@@ -6,6 +6,7 @@ import pandas as pd
 from typing import List, Union, Optional
 from bacen_analysis.data.repository import DataRepository
 from bacen_analysis.core.entity_resolver import EntityIdentifierResolver, ResolvedEntity
+from bacen_analysis.exceptions import InvalidScopeError, DataUnavailableError, EntityNotFoundError
 
 
 class COSIFDataProvider:
@@ -15,11 +16,7 @@ class COSIFDataProvider:
     Single Responsibility: Consultas e filtragem de dados COSIF.
     """
     
-    # Mapeamento de documentos para tipos
-    DOC_TO_TIPO_MAP = {
-        4060: 'prudencial', 4066: 'prudencial',
-        4010: 'individual', 4016: 'individual'
-    }
+    VALID_TIPOS = {'prudencial', 'individual'}
     
     def __init__(self, repository: DataRepository, entity_resolver: EntityIdentifierResolver):
         """
@@ -54,34 +51,91 @@ class COSIFDataProvider:
                 self._df_cosif_ind = self._repository.df_cosif_ind
             return self._df_cosif_ind
 
+    def _validate_tipo(self, tipo: str) -> None:
+        """
+        Valida se o tipo fornecido é válido.
+        
+        Args:
+            tipo: Tipo a validar
+            
+        Raises:
+            InvalidScopeError: Se o tipo não for válido
+        """
+        if tipo not in self.VALID_TIPOS:
+            raise InvalidScopeError(
+                scope_name='tipo',
+                value=tipo,
+                valid_values=list(self.VALID_TIPOS),
+                context='Tipo deve ser explicitamente especificado como "prudencial" ou "individual"'
+            )
+
+    def _normalize_documentos(self, documentos: Optional[Union[int, List[int]]]) -> Optional[List[int]]:
+        """
+        Normaliza documentos para uma lista.
+        
+        Args:
+            documentos: Documento único ou lista de documentos
+            
+        Returns:
+            Lista de documentos ou None
+        """
+        if documentos is None:
+            return None
+        if isinstance(documentos, list):
+            return documentos
+        return [documentos]
+
+    def _check_data_availability(
+        self,
+        cnpj_busca: str,
+        datas: List[int],
+        tipo: str,
+        df_base: pd.DataFrame
+    ) -> None:
+        """
+        Verifica se os dados estão disponíveis para o contexto especificado.
+        
+        Args:
+            cnpj_busca: CNPJ para buscar
+            datas: Lista de datas
+            tipo: Tipo de dados
+            df_base: DataFrame base
+            
+        Raises:
+            DataUnavailableError: Se os dados não estão disponíveis
+        """
+        if df_base.empty:
+            raise DataUnavailableError(
+                entity=cnpj_busca,
+                scope_type=tipo,
+                reason=f"Nenhum dado disponível no tipo '{tipo}'",
+                suggestions=[
+                    f"Verifique se há dados para este tipo no repositório",
+                    f"Tente usar o outro tipo ({'individual' if tipo == 'prudencial' else 'prudencial'})"
+                ]
+            )
+        
+        # Verifica se há dados para o CNPJ e datas especificadas
+        filtro_base = (df_base['CNPJ_8'] == cnpj_busca) & (df_base['DATA'].isin(datas))
+        dados_existem = filtro_base.any()
+        
+        if not dados_existem:
+            raise DataUnavailableError(
+                entity=cnpj_busca,
+                scope_type=tipo,
+                reason=f"Nenhum dado encontrado para CNPJ {cnpj_busca} nas datas {datas} no tipo '{tipo}'",
+                suggestions=[
+                    f"Verifique se o CNPJ tem dados no tipo '{tipo}'",
+                    f"Verifique se as datas estão disponíveis",
+                    f"Tente usar o outro tipo ({'individual' if tipo == 'prudencial' else 'prudencial'})"
+                ]
+            )
+
     def _select_df_base(self, tipo: str, df_override: Optional[pd.DataFrame]) -> pd.DataFrame:
         """Retorna o DataFrame COSIF base considerando overrides temporários."""
         if df_override is not None:
             return df_override
         return self._get_df_base(tipo)
-
-    def determine_tipo(
-        self,
-        tipo: str,
-        documentos: Optional[Union[int, List[int]]]
-    ) -> tuple[str, Optional[List[int]]]:
-        """Determina o tipo final (prudencial/individual) e normaliza documentos."""
-        tipo_busca = tipo
-        documentos_lista: Optional[List[int]] = None
-
-        if documentos is not None:
-            if not isinstance(documentos, list):
-                documentos_lista = [documentos]
-            else:
-                documentos_lista = documentos
-
-            if documentos_lista:
-                primeiro_doc = documentos_lista[0]
-                if primeiro_doc in self.DOC_TO_TIPO_MAP:
-                    tipo_definido_pelo_doc = self.DOC_TO_TIPO_MAP[primeiro_doc]
-                    if tipo_busca != tipo_definido_pelo_doc:
-                        tipo_busca = tipo_definido_pelo_doc
-        return tipo_busca, documentos_lista
 
     def build_subset(
         self,
@@ -125,45 +179,59 @@ class COSIFDataProvider:
         identificador: str,
         contas: Union[List[str], List[int], List[Union[str, int]]],
         datas: Union[int, List[int]],
-        tipo: str = 'prudencial',
+        tipo: str,
         documentos: Optional[Union[int, List[int]]] = None,
         df_cosif_override: Optional[pd.DataFrame] = None
     ) -> pd.DataFrame:
         """
-        Busca dados COSIF. Determina automaticamente o 'tipo' (prudencial/individual)
-        se um 'documento' for fornecido, tornando o parâmetro 'tipo' um fallback.
+        Busca dados COSIF com tipo obrigatório.
         
         Args:
             identificador: Nome ou CNPJ da instituição
             contas: Lista de nomes ou códigos de contas COSIF
             datas: Data única ou lista de datas no formato YYYYMM
-            tipo: Tipo de dados ('prudencial' ou 'individual')
+            tipo: Tipo de dados OBRIGATÓRIO ('prudencial' ou 'individual')
             documentos: Documento único ou lista de documentos COSIF
+            df_cosif_override: DataFrame override para otimização (uso interno)
             
         Returns:
             DataFrame com os dados solicitados, incluindo colunas 'Nome_Entidade' e 'CNPJ_8'
+            
+        Raises:
+            InvalidScopeError: Se o tipo não for válido
+            EntityNotFoundError: Se a entidade não for encontrada
+            DataUnavailableError: Se os dados não estiverem disponíveis para o contexto
         """
-        # Lógica inteligente de seleção de tipo
-        tipo_busca, documentos_lista = self.determine_tipo(tipo, documentos)
+        # Valida tipo obrigatório
+        self._validate_tipo(tipo)
+        
+        # Normaliza documentos
+        documentos_lista = self._normalize_documentos(documentos)
         
         # Seleciona o DataFrame base usando cache local
-        df_base = self._select_df_base(tipo_busca, df_cosif_override)
+        df_base = self._select_df_base(tipo, df_cosif_override)
 
-        # Resolve identificadores canônicos
+        # Resolve identificadores canônicos (find_cnpj lança exceção se não encontrar)
         cnpj_8 = self._entity_resolver.find_cnpj(identificador)
-        if not cnpj_8:
-            return self._empty_result_df(df_base)
 
         info_ent = self._entity_resolver.get_entity_identifiers(cnpj_8)
         nome_entidade_canonico = info_ent.get('nome_entidade', identificador)
         cnpj_busca = info_ent.get('cnpj_reporte_cosif', cnpj_8)
         
         if not cnpj_busca:
-            return self._empty_result_df(df_base)
+            raise DataUnavailableError(
+                entity=identificador,
+                scope_type=tipo,
+                reason="CNPJ de reporte COSIF não encontrado",
+                suggestions=["Verifique se a entidade possui dados COSIF"]
+            )
         
         # Normaliza datas
         if not isinstance(datas, list):
             datas = [datas]
+        
+        # Verifica disponibilidade de dados
+        self._check_data_availability(cnpj_busca, datas, tipo, df_base)
         
         # Aplica filtros
         filtro_base = (df_base['CNPJ_8'] == cnpj_busca) & (df_base['DATA'].isin(datas))
@@ -193,14 +261,24 @@ class COSIFDataProvider:
             ordem_final = cols_prioritarias + cols_restantes
             return temp_df.reset_index(drop=True)[ordem_final]
         else:
-            return self._empty_result_df(df_base)
+            # Se chegou aqui, os dados existem mas não há correspondência com as contas/documentos
+            raise DataUnavailableError(
+                entity=identificador,
+                scope_type=tipo,
+                reason=f"Nenhum dado encontrado para as contas/documentos especificados no tipo '{tipo}'",
+                suggestions=[
+                    "Verifique se os nomes ou códigos das contas estão corretos",
+                    "Verifique se os documentos especificados existem para esta entidade",
+                    "Verifique se há dados para as datas especificadas"
+                ]
+            )
 
     def get_dados_with_resolved(
         self,
         resolved_entity: ResolvedEntity,
         contas: Union[List[str], List[int], List[Union[str, int]]],
         datas: Union[int, List[int]],
-        tipo: str = 'prudencial',
+        tipo: str,
         documentos: Optional[Union[int, List[int]]] = None,
         df_cosif_override: Optional[pd.DataFrame] = None
     ) -> pd.DataFrame:
@@ -214,32 +292,53 @@ class COSIFDataProvider:
             resolved_entity: Entidade já resolvida pelo EntityIdentifierResolver
             contas: Lista de nomes ou códigos de contas COSIF
             datas: Data única ou lista de datas no formato YYYYMM
-            tipo: Tipo de dados ('prudencial' ou 'individual')
+            tipo: Tipo de dados OBRIGATÓRIO ('prudencial' ou 'individual')
             documentos: Documento único ou lista de documentos COSIF
+            df_cosif_override: DataFrame override para otimização (uso interno)
 
         Returns:
             DataFrame com os dados solicitados
+            
+        Raises:
+            InvalidScopeError: Se o tipo não for válido
+            DataUnavailableError: Se os dados não estiverem disponíveis para o contexto
         """
-        # Lógica inteligente de seleção de tipo
-        tipo_busca, documentos_lista = self.determine_tipo(tipo, documentos)
+        # Valida tipo obrigatório
+        self._validate_tipo(tipo)
+        
+        # Normaliza documentos
+        documentos_lista = self._normalize_documentos(documentos)
 
         # Seleciona o DataFrame base usando cache local
-        df_base = self._select_df_base(tipo_busca, df_cosif_override)
+        df_base = self._select_df_base(tipo, df_cosif_override)
 
         # Usa entidade já resolvida
         cnpj_8 = resolved_entity.cnpj_interesse
         if not cnpj_8:
-            return self._empty_result_df(df_base)
+            raise DataUnavailableError(
+                entity=resolved_entity.identificador_original,
+                scope_type=tipo,
+                reason="Entidade resolvida não possui CNPJ de interesse",
+                suggestions=["Verifique se o identificador foi resolvido corretamente"]
+            )
 
         nome_entidade_canonico = resolved_entity.nome_entidade or resolved_entity.identificador_original
         cnpj_busca = resolved_entity.cnpj_reporte_cosif or cnpj_8
 
         if not cnpj_busca:
-            return self._empty_result_df(df_base)
+            raise DataUnavailableError(
+                entity=resolved_entity.identificador_original,
+                scope_type=tipo,
+                reason="CNPJ de reporte COSIF não encontrado",
+                suggestions=["Verifique se a entidade possui dados COSIF"]
+            )
 
         # Normaliza datas
         if not isinstance(datas, list):
             datas = [datas]
+
+        # Verifica disponibilidade de dados
+        self._check_data_availability(cnpj_busca, datas, tipo, df_base)
 
         # Aplica filtros
         filtro_base = (df_base['CNPJ_8'] == cnpj_busca) & (df_base['DATA'].isin(datas))
@@ -269,19 +368,15 @@ class COSIFDataProvider:
             ordem_final = cols_prioritarias + cols_restantes
             return temp_df.reset_index(drop=True)[ordem_final]
         else:
-            return self._empty_result_df(df_base)
-
-    def _empty_result_df(self, df_base: pd.DataFrame) -> pd.DataFrame:
-        """
-        Retorna DataFrame vazio com estrutura padronizada.
-        
-        Args:
-            df_base: DataFrame base para inferir colunas
-            
-        Returns:
-            DataFrame vazio com colunas corretas
-        """
-        return pd.DataFrame(columns=[
-            'Nome_Entidade', 'CNPJ_8'
-        ] + [c for c in df_base.columns if c not in ['NOME_INSTITUICAO_COSIF', 'CNPJ_8']])
+            # Se chegou aqui, os dados existem mas não há correspondência com as contas/documentos
+            raise DataUnavailableError(
+                entity=resolved_entity.identificador_original,
+                scope_type=tipo,
+                reason=f"Nenhum dado encontrado para as contas/documentos especificados no tipo '{tipo}'",
+                suggestions=[
+                    "Verifique se os nomes ou códigos das contas estão corretos",
+                    "Verifique se os documentos especificados existem para esta entidade",
+                    "Verifique se há dados para as datas especificadas"
+                ]
+            )
 
